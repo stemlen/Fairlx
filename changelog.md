@@ -1,5 +1,91 @@
 # Production-Readiness Perfection Check - Complete Changelog
 
+> **Session Date:** January 4, 2026  
+> **Objective:** Usage Dashboard & Analytics UX Enhancement
+
+---
+
+## 📋 Executive Summary (Session 8)
+
+Implemented **unified organization usage analytics** and **adaptive charting system** to provide clear, actionable insights into workspace resource consumption:
+
+1. ✅ **Organization Usage Page** - Integrated view for organization-wide usage monitoring
+2. ✅ **Adaptive Unit Scaling** - Charts dynamically switch between B, KB, MB, and GB to ensures readability
+3. ✅ **Efficient Daily Aggregation** - Backend `/summary` optimized to return time-series data for the entire month
+4. ✅ **Workspace Breakdown Fix** - Table now displays all workspaces with their specific usage and estimated costs
+5. ✅ **Sidebar Context Logic** - Re-enabled Projects/Spaces visibility on non-workspace routes
+6. ✅ **Layout "Glitch" Fix** - Removed redundant scrolling and fixed dashboard background continuity
+
+**Result:** ✅ Usage analytics are now accurate, readable, and enterprise-ready
+
+---
+
+## 🆕 New Files Created
+
+| File | Purpose |
+|------|---------|
+| `(dashboard)/organization/usage/page.tsx` | Entry point for org-level usage dashboard |
+| `usage-dashboard-client.tsx` | Reusable client architect for shared usage views |
+
+---
+
+## 🔧 Files Modified
+
+| File | Change |
+|------|--------|
+| `usage/server/route.ts` | Backend time-series aggregation and workspace breakdowns |
+| `usage/types.ts` | Enhanced `UsageSummary` with `dailyUsage` and `byWorkspace` data |
+| `usage-charts.tsx` | Full rebuild with Recharts, custom tooltips, and unit scaling |
+| `workspace-usage-breakdown.tsx` | Refactored to consume unified summary data |
+| `(dashboard)/layout.tsx` | Cleaned up conflicting scrollbars and added dashboard background |
+| `sidebar.tsx` & `navigation.tsx` | Added context-awareness for organization-level routes |
+| `projects.tsx` & `spaces.tsx` | Added fallback to active workspace ID when URL context is missing |
+
+---
+
+## 📊 Analytics Improvements
+
+### 1. Smart Unit Scaling
+Implemented `formatValue` utility in charts to automatically scale units:
+- **0 - 1023 B**: Bytes
+- **1 KB - 1023 KB**: Kilobytes
+- **1 MB - 1023 MB**: Megabytes
+- **1 GB+**: Gigabytes
+
+### 2. Time-Series Aggregation
+The backend now pre-aggregates usage events into daily buckets:
+```typescript
+{
+  date: "2026-01-04",
+  traffic: 1548293, // Bytes
+  storage: 502394,  // Bytes
+  compute: 125,     // Weighted Units
+  ...
+}
+```
+
+---
+
+## 🎨 UI & Layout Polish
+
+### 1. Unified Dashboard Background
+Set a persistent `bg-slate-50` / `bg-slate-900/50` on the main dashboard container. This eliminates "white gaps" when content is shorter than the viewport.
+
+### 2. Scroll Harmony
+Removed `h-full` and `overflow-y-scroll` from nested components. Scrolling is now managed cleanly by the layout container, preventing "trapped" scrollbars and content clipping.
+
+---
+
+## ✅ Deployment Readiness
+- [x] All usage types explicitly defined
+- [x] Backend performance optimized for large event volumes
+- [x] Navigation flows tested across PERSONAL and ORG account types
+- [x] Zero lint warnings in modified files
+
+---
+
+---
+
 > **Session Date:** December 30, 2025  
 > **Objective:** Enterprise Auth & Onboarding Stepper Redesign
 
@@ -1721,7 +1807,5 @@ ctx.type === 'workspace' ? ctx.workspaceName :
 ✅ **Idempotent** - Retry-safe with unique keys  
 ✅ **Admin-only** - Server-side 403 enforcement  
 ✅ **Config-driven** - No magic numbers  
-
----
 
 *End of Changelog*

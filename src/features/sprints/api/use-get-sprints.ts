@@ -8,16 +8,18 @@ interface UseGetSprintsProps {
   workspaceId: string;
   projectId?: string;
   status?: SprintStatus;
+  enabled?: boolean;
 }
 
 export const useGetSprints = ({
   workspaceId,
   projectId,
   status,
+  enabled = true,
 }: UseGetSprintsProps) => {
   const query = useQuery({
     queryKey: ["sprints", workspaceId, projectId, status],
-    enabled: Boolean(workspaceId) && Boolean(projectId),
+    enabled: Boolean(workspaceId) && Boolean(projectId) && enabled,
     queryFn: async () => {
       if (!workspaceId || !projectId) {
         throw new Error("workspaceId and projectId are required to fetch sprints.");

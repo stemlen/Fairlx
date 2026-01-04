@@ -8,7 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
 import { toast } from "sonner";
+import { useEffect } from "react";
+import Link from "next/link";
+
+import { cn } from "@/lib/utils";
+import { useGetOrganization } from "../api/use-get-organization";
+import { useGetOrgMembers } from "../api/use-get-org-members";
+import { useUpdateOrganization } from "../api/use-update-organization";
+import { useGetInvoices } from "@/features/usage/api";
 
 interface OrganizationBillingSettingsProps {
     organizationId: string;
@@ -19,45 +28,91 @@ export function OrganizationBillingSettings({
     organizationId,
     organizationName,
 }: OrganizationBillingSettingsProps) {
-    // In real implementation, fetch billing data from API
-    const hasPaymentMethod = false;
+    const { data: organization, isLoading: isOrgLoading } = useGetOrganization({ orgId: organizationId });
+    const { data: membersDoc } = useGetOrgMembers({ organizationId });
+    const { data: invoicesDoc, isLoading: isInvoicesLoading } = useGetInvoices({
+        organizationId,
+        limit: 10
+    });
+    const { mutate: updateOrganization } = useUpdateOrganization();
 
-    // Issue 9: Add form state for billing email
-    const [billingEmailValue, setBillingEmailValue] = useState("billing@example.com");
+    const [billingEmailValue, setBillingEmailValue] = useState("");
+    const [alternativeEmailValue, setAlternativeEmailValue] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [isAddingPayment, setIsAddingPayment] = useState(false);
 
+    // Sync state with organization data
+    useEffect(() => {
+        if (organization) {
+            try {
+                const settings = organization.billingSettings ? JSON.parse(organization.billingSettings) : {};
+                setBillingEmailValue(settings.primaryEmail || "");
+                setAlternativeEmailValue(settings.alternativeEmail || "");
+            } catch (e) {
+                console.error("Failed to parse billing settings", e);
+            }
+        }
+    }, [organization]);
+
+    // Find organization owner email
+    const ownerEmail = membersDoc?.documents.find(m => m.role === "OWNER")?.email;
+
+    const hasPaymentMethod = false; // Mock for now
+
+    const invoices = invoicesDoc?.documents || [];
+    const isLoading = isOrgLoading; // Main page loading is still just org loading
+
+    if (isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center p-12 space-y-4">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading billing settings...</p>
+            </div>
+        );
+    }
+
     // Issue 9: Handler for save billing settings
     const handleSaveBillingSettings = async () => {
-        // Validate organizationId exists
         if (!organizationId) {
             toast.error("Organization ID is required");
             return;
         }
 
-        // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(billingEmailValue)) {
-            toast.error("Please enter a valid email address");
+
+        // Validate primary email if it was overridden/set
+        if (billingEmailValue && !emailRegex.test(billingEmailValue)) {
+            toast.error("Please enter a valid primary email address");
+            return;
+        }
+
+        // Validate alternative email if provided
+        if (alternativeEmailValue && !emailRegex.test(alternativeEmailValue)) {
+            toast.error("Please enter a valid alternative email address");
             return;
         }
 
         setIsSaving(true);
-        try {
-            // TODO: Replace with actual API call when billing endpoint is implemented
-            // await fetch(`/api/organizations/${organizationId}/billing`, {
-            //   method: 'PATCH',
-            //   body: JSON.stringify({ billingEmail: billingEmailValue })
-            // });
 
-            // For now, show info toast that endpoint is pending
-            toast.info("Billing settings save is not yet implemented. Settings will be saved once the billing API is ready.");
-        } catch (error) {
-            console.error("Failed to save billing settings:", error);
-            toast.error("Failed to save billing settings");
-        } finally {
-            setIsSaving(false);
-        }
+        const settings = {
+            primaryEmail: billingEmailValue || ownerEmail,
+            alternativeEmail: alternativeEmailValue
+        };
+
+        updateOrganization({
+            organizationId,
+            billingSettings: JSON.stringify(settings)
+        }, {
+            onSuccess: () => {
+                toast.success("Billing settings updated successfully!");
+                setIsSaving(false);
+            },
+            onError: (error) => {
+                console.error("Failed to save billing settings:", error);
+                toast.error("Failed to save billing settings");
+                setIsSaving(false);
+            }
+        });
     };
 
     // Issue 9: Handler for add payment method
@@ -94,29 +149,63 @@ export function OrganizationBillingSettings({
                 </CardHeader>
                 <CardContent className="space-y-4">
                     {/* Billing Timeline - Item 4.6 */}
-                    <div className="rounded-lg border p-4 bg-blue-50/50 dark:bg-blue-950/30">
-                        <h4 className="text-sm font-medium flex items-center gap-2 mb-3">
-                            <Calendar className="h-4 w-4 text-blue-600" />
-                            Billing Timeline
+                    <div className="rounded-lg border p-5 bg-blue-50/50 dark:bg-blue-950/20 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-3 opacity-10">
+                            <Calendar className="h-16 w-16" />
+                        </div>
+
+                        <h4 className="text-sm font-semibold flex items-center gap-2 mb-4 text-blue-700 dark:text-blue-400">
+                            <Calendar className="h-4 w-4" />
+                            Billing Lifecycle
                         </h4>
-                        <div className="space-y-2 text-sm">
-                            <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-gray-400" />
-                                <span className="text-muted-foreground">
-                                    Before organization creation → <span className="font-medium text-foreground">Personal billing</span>
-                                </span>
+
+                        <div className="relative pl-6 space-y-6">
+                            {/* Vertical Line Connector */}
+                            <div className="absolute left-[7px] top-2 bottom-2 w-[2px] bg-blue-100 dark:bg-blue-900/50" />
+
+                            {/* Personal Phase */}
+                            <div className="relative">
+                                <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-950 bg-slate-300 dark:bg-slate-700 z-10" />
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">Personal Account Usage</span>
+                                        <Badge variant="outline" className="text-[10px] h-4 px-1.5 uppercase tracking-wider font-bold bg-white/50 dark:bg-black/20">Historic</Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        All activity prior to organization creation. Billed directly to your personal payment method.
+                                    </p>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                                <span className="text-muted-foreground">
-                                    After organization creation → <span className="font-medium text-foreground">Organization billing</span>
-                                </span>
+
+                            {/* Organization Phase */}
+                            <div className="relative">
+                                <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-950 bg-blue-600 z-10 shadow-[0_0_8px_rgba(37,99,235,0.4)]" />
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-medium text-blue-700 dark:text-blue-400">Organization Managed Billing</span>
+                                        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 uppercase tracking-wider font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">Active</Badge>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs text-blue-600/80 dark:text-blue-400/80 font-medium">
+                                        <span>Started on {organization?.billingStartAt ? format(new Date(organization.billingStartAt), "PPP") : "Creation"}</span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        All shared workspaces and team activity are consolidated into this organization&apos;s billing cycle.
+                                    </p>
+                                </div>
                             </div>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-3">
-                            Usage before your organization was created is billed to your personal account.
-                            All usage after is billed to this organization.
-                        </p>
+
+                        <div className="mt-4 pt-4 border-t border-blue-100 dark:border-blue-900/40 flex items-center justify-between">
+                            <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 italic">
+                                * The transition occurred when your account was converted to an organization.
+                            </p>
+                            <Button variant="ghost" size="sm" asChild className="text-blue-600 dark:text-blue-400 font-semibold h-7 px-2 hover:bg-blue-100 dark:hover:bg-blue-900/40">
+                                <Link href="/organization/usage">
+                                    View Detailed Usage
+                                    <ExternalLink className="ml-1.5 h-3 w-3" />
+                                </Link>
+                            </Button>
+                        </div>
                     </div>
 
                     <Separator />
@@ -125,7 +214,7 @@ export function OrganizationBillingSettings({
                         <div className="space-y-2">
                             <Label>Billing Entity</Label>
                             <div className="flex items-center gap-2">
-                                <Input value={organizationName} disabled className="flex-1" />
+                                <Input value={organization?.name || organizationName} disabled className="flex-1" />
                                 <Badge variant="default">Organization</Badge>
                             </div>
                             <p className="text-xs text-muted-foreground">
@@ -140,19 +229,44 @@ export function OrganizationBillingSettings({
 
                     <Separator />
 
-                    <div className="space-y-2">
-                        <Label htmlFor="billingEmail">Billing Email</Label>
-                        <Input
-                            id="billingEmail"
-                            type="email"
-                            value={billingEmailValue}
-                            onChange={(e) => setBillingEmailValue(e.target.value)}
-                            placeholder="billing@example.com"
-                            disabled={isSaving}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Invoices and billing notifications will be sent to this email
-                        </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                            <Label htmlFor="billingEmail">Primary Billing Email</Label>
+                            <Input
+                                id="billingEmail"
+                                type="email"
+
+                                value={billingEmailValue}
+                                onChange={(e) => setBillingEmailValue(e.target.value)}
+                                placeholder={ownerEmail || "owner@example.com"}
+                                disabled={isSaving}
+                            />
+                            <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                                {billingEmailValue ? (
+                                    <span>Custom billing email active</span>
+                                ) : (
+                                    <>
+                                        <Badge variant="outline" className="text-[9px] h-3.5 px-1 uppercase font-bold">Default</Badge>
+                                        <span>Using owner: {ownerEmail || "loading..."}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="alternativeEmail">Alternative Billing Email (Optional)</Label>
+                            <Input
+                                id="alternativeEmail"
+                                type="email"
+                                value={alternativeEmailValue}
+                                onChange={(e) => setAlternativeEmailValue(e.target.value)}
+                                placeholder="finance@company.com"
+                                disabled={isSaving}
+                            />
+                            <p className="text-[11px] text-muted-foreground">
+                                Secondary contact for billing notifications
+                            </p>
+                        </div>
                     </div>
 
                     <Button onClick={handleSaveBillingSettings} disabled={isSaving}>
@@ -238,39 +352,58 @@ export function OrganizationBillingSettings({
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-2">
-                        {/* Mock invoice data */}
-                        {[
-                            { id: "INV-2025-01", date: "2025-01-01", amount: "$129.50", status: "paid" },
-                            { id: "INV-2024-12", date: "2024-12-01", amount: "$89.30", status: "paid" },
-                            { id: "INV-2024-11", date: "2024-11-01", amount: "$115.75", status: "paid" },
-                        ].map((invoice) => (
-                            <div
-                                key={invoice.id}
-                                className="flex items-center justify-between p-3 rounded-lg border"
-                            >
-                                <div className="flex items-center gap-4">
-                                    <FileText className="h-4 w-4 text-muted-foreground" />
-                                    <div>
-                                        <div className="font-medium">{invoice.id}</div>
-                                        <div className="text-sm text-muted-foreground flex items-center gap-1">
-                                            <Calendar className="h-3 w-3" />
-                                            {invoice.date}
+                        {isInvoicesLoading ? (
+                            <div className="flex flex-col items-center justify-center py-10 space-y-2">
+                                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                <p className="text-xs text-muted-foreground">Loading invoices...</p>
+                            </div>
+                        ) : invoices.length === 0 ? (
+                            <div className="text-center py-10 border rounded-lg border-dashed">
+                                <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+                                <p className="text-sm text-muted-foreground">No invoices found for this organization yet.</p>
+                                <p className="text-xs text-muted-foreground mt-1">Invoices are generated at the end of each billing cycle.</p>
+                            </div>
+                        ) : (
+                            invoices.map((invoice) => (
+                                <div
+                                    key={invoice.$id}
+                                    className="flex items-center justify-between p-3 rounded-lg border"
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <FileText className="h-4 w-4 text-muted-foreground" />
+                                        <div>
+                                            <div className="font-medium">{invoice.invoiceId}</div>
+                                            <div className="text-sm text-muted-foreground flex items-center gap-1">
+                                                <Calendar className="h-3 w-3" />
+                                                {format(new Date(invoice.createdAt), "PPP")}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <div className="text-right">
-                                        <div className="font-semibold">{invoice.amount}</div>
-                                        <Badge variant="outline" className="text-xs">
-                                            {invoice.status}
-                                        </Badge>
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-right">
+                                            <div className="font-semibold">
+                                                {new Intl.NumberFormat("en-US", {
+                                                    style: "currency",
+                                                    currency: "USD",
+                                                }).format(invoice.totalCost)}
+                                            </div>
+                                            <Badge
+                                                variant={invoice.status === 'paid' ? 'default' : 'outline'}
+                                                className={cn(
+                                                    "text-[10px] h-4 px-1.5 uppercase",
+                                                    invoice.status === 'paid' && "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800"
+                                                )}
+                                            >
+                                                {invoice.status}
+                                            </Badge>
+                                        </div>
+                                        <Button variant="ghost" size="sm">
+                                            Download
+                                        </Button>
                                     </div>
-                                    <Button variant="ghost" size="sm">
-                                        Download
-                                    </Button>
                                 </div>
-                            </div>
-                        ))}
+                            ))
+                        )}
                     </div>
                 </CardContent>
             </Card>
@@ -286,10 +419,10 @@ export function OrganizationBillingSettings({
                             </p>
                         </div>
                         <Button asChild>
-                            <a href="../admin/usage">
+                            <Link href="/organization/usage">
                                 <DollarSign className="mr-2 h-4 w-4" />
                                 Usage Dashboard
-                            </a>
+                            </Link>
                         </Button>
                     </div>
                 </CardContent>

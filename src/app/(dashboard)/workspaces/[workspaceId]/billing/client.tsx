@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useAccountType } from "@/features/organizations/hooks/use-account-type";
 import { useGetOrganizations } from "@/features/organizations/api/use-get-organizations";
 import { useGetUsageSummary } from "@/features/usage/api/use-get-usage-summary";
+import { useGetUsageEvents } from "@/features/usage/api/use-get-usage-events";
 import { WorkspaceUsageBreakdown } from "@/features/usage/components";
 
 export const BillingDashboardClient = () => {
@@ -19,6 +20,13 @@ export const BillingDashboardClient = () => {
     const { data: usageSummary, isLoading: usageLoading } = useGetUsageSummary({
         workspaceId,
         period: new Date().toISOString().slice(0, 7), // Current month YYYY-MM
+    });
+
+    // Fetch events for workspace breakdown
+    const { data: eventsData, isLoading: eventsLoading } = useGetUsageEvents({
+        workspaceId: isOrg ? undefined : workspaceId,
+        organizationId: isOrg ? primaryOrganizationId : undefined,
+        limit: 500,
     });
 
     // Get current org for ORG accounts
@@ -145,7 +153,9 @@ export const BillingDashboardClient = () => {
             {isOrg && primaryOrganizationId && (
                 <WorkspaceUsageBreakdown
                     organizationId={primaryOrganizationId}
-                    isLoading={usageLoading}
+                    summary={usageSummary?.data || null}
+                    events={eventsData?.data?.documents || []}
+                    isLoading={usageLoading || eventsLoading}
                 />
             )}
 

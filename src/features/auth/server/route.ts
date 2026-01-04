@@ -31,6 +31,12 @@ const app = new Hono()
 
     return c.json({ data: user });
   })
+  .get("/lifecycle", sessionMiddleware, async (c) => {
+    // Dynamic import to avoid circular dependency
+    const { resolveAccountLifecycleState } = await import("./actions");
+    const lifecycleState = await resolveAccountLifecycleState();
+    return c.json({ data: lifecycleState });
+  })
   .post("/login", zValidator("json", loginSchema), async (c) => {
     const { email, password } = c.req.valid("json");
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { LoaderIcon, PlusIcon } from "lucide-react";
+import { LoaderIcon } from "lucide-react";
 import { useQueryState } from "nuqs";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useProjectId } from "@/features/projects/hooks/use-project-id";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
@@ -24,8 +24,9 @@ import { MyBacklogView } from "@/features/personal-backlog/components/my-backlog
 import EnhancedBacklogScreen from "@/features/sprints/components/enhanced-backlog-screen";
 import { ProjectSetupOverlay } from "@/features/sprints/components/project-setup-overlay";
 import { useGetWorkItems, useGetSprints, SprintStatus, WorkItemStatus, WorkItemPriority, PopulatedWorkItem, useBulkUpdateWorkItems } from "@/features/sprints";
+import { CompleteSprintModal } from "@/features/sprints/components/complete-sprint-modal";
 
-import { useCreateTaskModal } from "../hooks/use-create-task-modal";
+
 import { useTaskFilters } from "../hooks/use-task-filters";
 import { TaskStatus, TaskPriority, PopulatedTask } from "../types";
 
@@ -108,6 +109,7 @@ export const TaskViewSwitcher = ({
   const [{ status, assigneeId, projectId, search, priority }] =
     useTaskFilters();
   const [view, setView] = useQueryState("task-view", { defaultValue: "dashboard" });
+  const [completeSprintOpen, setCompleteSprintOpen] = useState(false);
   const { mutate: bulkUpdate } = useBulkUpdateWorkItems();
 
   const workspaceId = useWorkspaceId();
@@ -160,6 +162,7 @@ export const TaskViewSwitcher = ({
       hasWorkItems: workItems.length > 0,
       hasSprints: sprints.length > 0,
       hasActiveSprint: !!activeSprint,
+      activeSprint,
       needsSetup: workItems.length === 0 || sprints.length === 0 || !activeSprint,
     };
   }, [workItemsData, sprintsData]);
@@ -218,7 +221,7 @@ export const TaskViewSwitcher = ({
     [bulkUpdate]
   );
 
-  const { open } = useCreateTaskModal();
+
 
   const isLoadingTasks = isLoadingWorkItems;
 
@@ -258,82 +261,73 @@ export const TaskViewSwitcher = ({
               </TabsTrigger>
             )}
           </TabsList>
-          {isAdmin && (
+
+          {isAdmin && view === "kanban" && setupState.activeSprint && (
             <Button
-              onClick={open}
+              onClick={() => setCompleteSprintOpen(true)}
               size="xs"
-              className="w-full font-medium px-3 py-2 tracking-tight !bg-[#2663ec] lg:w-auto disabled:opacity-50"
-              disabled={effectiveProjectId ? setupState.needsSetup : false}
-              title={effectiveProjectId && setupState.needsSetup ? "Complete project setup in Backlog first" : undefined}
+              variant="outline"
+              className="w-full font-medium px-3 py-2 border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300 lg:w-auto"
             >
-              <PlusIcon className="size-3 " />
-              Add Work Item
+              Complete Sprint {setupState.activeSprint.name}
             </Button>
           )}
         </div>
 
 
-        {view !== "dashboard" && view !== "timeline" && view !== "backlog" && (
-          <DataFilters
-            hideProjectFilter={hideProjectFilter}
-            showMyTasksOnly={showMyTasksOnly}
-            disableManageColumns={effectiveProjectId ? setupState.needsSetup : false}
-          />
-        )}
+      </div>
 
 
-        {isLoadingTasks ? (
-          <div className="w-full border rounded-lg h-[200px] flex flex-col items-center justify-center">
-            <LoaderIcon className="size-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <>
-            <TabsContent value="dashboard" className="mt-0 p-4">
-              <DataDashboard tasks={filteredTasks?.documents} isLoading={isLoadingTasks} />
-            </TabsContent>
-            <TabsContent value="table" className="mt-0 p-4">
-              {effectiveProjectId && setupState.needsSetup ? (
-                <ProjectSetupOverlay
-                  workspaceId={workspaceId}
-                  projectId={effectiveProjectId}
-                  hasWorkItems={setupState.hasWorkItems}
-                  hasSprints={setupState.hasSprints}
-                  hasActiveSprint={setupState.hasActiveSprint}
-                  variant="table"
-                >
-                  <DataTable
-                    columns={createColumns(isAdmin, isAdmin)}
-                    data={filteredTasks?.documents ?? []}
-                  />
-                </ProjectSetupOverlay>
-              ) : (
+      {view !== "dashboard" && view !== "timeline" && view !== "backlog" && (
+        <DataFilters
+          hideProjectFilter={hideProjectFilter}
+          showMyTasksOnly={showMyTasksOnly}
+          disableManageColumns={effectiveProjectId ? setupState.needsSetup : false}
+        />
+      )}
+
+
+      {isLoadingTasks ? (
+        <div className="w-full border rounded-lg h-[200px] flex flex-col items-center justify-center">
+          <LoaderIcon className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          <TabsContent value="dashboard" className="mt-0 p-4">
+            <DataDashboard tasks={filteredTasks?.documents} isLoading={isLoadingTasks} />
+          </TabsContent>
+          <TabsContent value="table" className="mt-0 p-4">
+            {effectiveProjectId && setupState.needsSetup ? (
+              <ProjectSetupOverlay
+                workspaceId={workspaceId}
+                projectId={effectiveProjectId}
+                hasWorkItems={setupState.hasWorkItems}
+                hasSprints={setupState.hasSprints}
+                hasActiveSprint={setupState.hasActiveSprint}
+                variant="table"
+              >
                 <DataTable
                   columns={createColumns(isAdmin, isAdmin)}
                   data={filteredTasks?.documents ?? []}
                 />
-              )}
-            </TabsContent>
-            <TabsContent value="kanban" className="mt-0 p-4">
-              {effectiveProjectId && setupState.needsSetup ? (
-                <ProjectSetupOverlay
-                  workspaceId={workspaceId}
-                  projectId={effectiveProjectId}
-                  hasWorkItems={setupState.hasWorkItems}
-                  hasSprints={setupState.hasSprints}
-                  hasActiveSprint={setupState.hasActiveSprint}
-                  variant="kanban"
-                >
-                  <EnhancedDataKanban
-                    data={kanbanTasks}
-                    onChange={onKanbanChange}
-                    canCreateTasks={isAdmin}
-                    canEditTasks={isAdmin}
-                    canDeleteTasks={isAdmin}
-                    members={members?.documents ?? []}
-                    projectId={paramProjectId || projectId || undefined}
-                  />
-                </ProjectSetupOverlay>
-              ) : (
+              </ProjectSetupOverlay>
+            ) : (
+              <DataTable
+                columns={createColumns(isAdmin, isAdmin)}
+                data={filteredTasks?.documents ?? []}
+              />
+            )}
+          </TabsContent>
+          <TabsContent value="kanban" className="mt-0 p-4">
+            {effectiveProjectId && setupState.needsSetup ? (
+              <ProjectSetupOverlay
+                workspaceId={workspaceId}
+                projectId={effectiveProjectId}
+                hasWorkItems={setupState.hasWorkItems}
+                hasSprints={setupState.hasSprints}
+                hasActiveSprint={setupState.hasActiveSprint}
+                variant="kanban"
+              >
                 <EnhancedDataKanban
                   data={kanbanTasks}
                   onChange={onKanbanChange}
@@ -343,59 +337,81 @@ export const TaskViewSwitcher = ({
                   members={members?.documents ?? []}
                   projectId={paramProjectId || projectId || undefined}
                 />
-              )}
-            </TabsContent>
-            <TabsContent value="calendar" className="mt-0 h-full p-4 pb-4">
-              {effectiveProjectId && setupState.needsSetup ? (
-                <ProjectSetupOverlay
-                  workspaceId={workspaceId}
-                  projectId={effectiveProjectId}
-                  hasWorkItems={setupState.hasWorkItems}
-                  hasSprints={setupState.hasSprints}
-                  hasActiveSprint={setupState.hasActiveSprint}
-                  variant="calendar"
-                >
-                  <DataCalendar data={filteredTasks?.documents ?? []} />
-                </ProjectSetupOverlay>
-              ) : (
+              </ProjectSetupOverlay>
+            ) : (
+              <EnhancedDataKanban
+                data={kanbanTasks}
+                onChange={onKanbanChange}
+                canCreateTasks={isAdmin}
+                canEditTasks={isAdmin}
+                canDeleteTasks={isAdmin}
+                members={members?.documents ?? []}
+                projectId={paramProjectId || projectId || undefined}
+              />
+            )}
+          </TabsContent>
+          <TabsContent value="calendar" className="mt-0 h-full p-4 pb-4">
+            {effectiveProjectId && setupState.needsSetup ? (
+              <ProjectSetupOverlay
+                workspaceId={workspaceId}
+                projectId={effectiveProjectId}
+                hasWorkItems={setupState.hasWorkItems}
+                hasSprints={setupState.hasSprints}
+                hasActiveSprint={setupState.hasActiveSprint}
+                variant="calendar"
+              >
                 <DataCalendar data={filteredTasks?.documents ?? []} />
-              )}
-            </TabsContent>
-            <TabsContent value="timeline" className="mt-0 h-full">
-              {effectiveProjectId && setupState.needsSetup ? (
-                <ProjectSetupOverlay
-                  workspaceId={workspaceId}
-                  projectId={effectiveProjectId}
-                  hasWorkItems={setupState.hasWorkItems}
-                  hasSprints={setupState.hasSprints}
-                  hasActiveSprint={setupState.hasActiveSprint}
-                  variant="timeline"
-                >
-                  <TimelineView
-                    workspaceId={workspaceId}
-                    projectId={paramProjectId || projectId || undefined}
-                  />
-                </ProjectSetupOverlay>
-              ) : (
+              </ProjectSetupOverlay>
+            ) : (
+              <DataCalendar data={filteredTasks?.documents ?? []} />
+            )}
+          </TabsContent>
+          <TabsContent value="timeline" className="mt-0 h-full">
+            {effectiveProjectId && setupState.needsSetup ? (
+              <ProjectSetupOverlay
+                workspaceId={workspaceId}
+                projectId={effectiveProjectId}
+                hasWorkItems={setupState.hasWorkItems}
+                hasSprints={setupState.hasSprints}
+                hasActiveSprint={setupState.hasActiveSprint}
+                variant="timeline"
+              >
                 <TimelineView
                   workspaceId={workspaceId}
                   projectId={paramProjectId || projectId || undefined}
                 />
-              )}
+              </ProjectSetupOverlay>
+            ) : (
+              <TimelineView
+                workspaceId={workspaceId}
+                projectId={paramProjectId || projectId || undefined}
+              />
+            )}
+          </TabsContent>
+          {paramProjectId && (
+            <TabsContent value="backlog" className="mt-0 h-full">
+              <EnhancedBacklogScreen workspaceId={workspaceId} projectId={paramProjectId} />
             </TabsContent>
-            {paramProjectId && (
-              <TabsContent value="backlog" className="mt-0 h-full">
-                <EnhancedBacklogScreen workspaceId={workspaceId} projectId={paramProjectId} />
-              </TabsContent>
-            )}
-            {showMyTasksOnly && (
-              <TabsContent value="my-backlog" className="mt-0 h-full">
-                <MyBacklogView workspaceId={workspaceId} />
-              </TabsContent>
-            )}
-          </>
-        )}
-      </div>
-    </Tabs>
+          )}
+          {showMyTasksOnly && (
+            <TabsContent value="my-backlog" className="mt-0 h-full">
+              <MyBacklogView workspaceId={workspaceId} />
+            </TabsContent>
+          )}
+        </>
+      )}
+
+
+
+      {
+        setupState.activeSprint && (
+          <CompleteSprintModal
+            sprint={setupState.activeSprint}
+            open={completeSprintOpen}
+            onOpenChange={setCompleteSprintOpen}
+          />
+        )
+      }
+    </Tabs >
   );
 };

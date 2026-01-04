@@ -3,7 +3,8 @@ import { client } from "@/lib/rpc";
 import { ResourceType, ExportFormat } from "../types";
 
 interface ExportUsageParams {
-    workspaceId: string;
+    workspaceId?: string;
+    organizationId?: string;
     format: ExportFormat;
     startDate?: string;
     endDate?: string;
@@ -16,6 +17,7 @@ export const useExportUsage = () => {
             const response = await client.api.usage.events.export.$get({
                 query: {
                     workspaceId: params.workspaceId,
+                    organizationId: params.organizationId,
                     format: params.format,
                     startDate: params.startDate,
                     endDate: params.endDate,

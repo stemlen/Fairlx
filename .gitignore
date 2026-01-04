@@ -8,9 +8,11 @@
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
+/docs
 
 # testing
 /test-results
+/tests
 /playwright-report
 /coverage
 /.nyc_output

@@ -14,7 +14,7 @@ import { usePathname } from "next/navigation";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 import { useProjectId } from "@/features/projects/hooks/use-project-id";
-import { useAccountType } from "@/features/organizations/hooks/use-account-type";
+
 import { useCurrentOrgMember } from "@/features/organizations/api/use-current-org-member";
 
 /**
@@ -124,24 +124,32 @@ interface NavigationProps {
   hasWorkspaces?: boolean;
 }
 
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
+
 export const Navigation = ({ hasWorkspaces = true }: NavigationProps) => {
-  const workspaceId = useWorkspaceId();
+  const urlWorkspaceId = useWorkspaceId();
+  const { lifecycleState: state } = useAccountLifecycle();
+  const { hasOrg, activeOrgId, activeWorkspaceId } = state;
+
+  // Use URL workspaceId if available, otherwise fallback to global active workspaceId
+  const selectedWorkspaceId = urlWorkspaceId || activeWorkspaceId;
+
   const projectId = useProjectId();
   const pathname = usePathname();
-  const { isAdmin } = useCurrentMember({ workspaceId });
-  const { isOrg, primaryOrganizationId } = useAccountType();
+  const { isAdmin } = useCurrentMember({ workspaceId: (selectedWorkspaceId || "") as string });
+
   const { canEdit: isOrgAdmin } = useCurrentOrgMember({
-    organizationId: primaryOrganizationId || ""
+    organizationId: (activeOrgId || "") as string
   });
 
   // Filter routes based on permissions, account type, and workspace existence
   const visibleRoutes = routes.filter(route => {
-    // Hide workspace-scoped routes when no workspace exists OR no workspace is active
-    if (route.workspaceScoped && (!hasWorkspaces || !workspaceId)) return false;
+    // Hide workspace-scoped routes ONLY if user has no workspaces at all
+    if (route.workspaceScoped && !hasWorkspaces) return false;
     // Hide workspace admin-only routes for non-admins (when in workspace context)
     if (route.adminOnly && hasWorkspaces && !isAdmin) return false;
     // Hide org-only routes for PERSONAL accounts
-    if (route.orgOnly && !isOrg) return false;
+    if (route.orgOnly && !hasOrg) return false;
     // Hide org admin-only routes for non org-admins
     if (route.orgAdminOnly && !isOrgAdmin) return false;
     return true;
@@ -154,19 +162,29 @@ export const Navigation = ({ hasWorkspaces = true }: NavigationProps) => {
           // Determine the correct href based on route type
           let fullHref: string;
           let isActive: boolean;
+          let isOrgRoute = item.orgRoute;
 
-          if (item.orgRoute) {
+          // Special case: Admin Panel should be org-level for ORG accounts
+          if (item.label === "Admin Panel" && hasOrg) {
+            fullHref = "/organization/usage";
+            isActive = pathname === "/organization/usage";
+            isOrgRoute = true;
+          } else if (isOrgRoute) {
             // Org-level routes: dashboard-level, no workspace prefix
             fullHref = item.href;
             isActive = pathname === item.href;
-          } else if (item.href === "/timeline") {
-            // Timeline: pass workspaceId and projectId as search params for SSR
-            fullHref = `/workspaces/${workspaceId}${item.href}?workspaceId=${workspaceId}${projectId ? `&projectId=${projectId}` : ""}`;
-            isActive = pathname === `/workspaces/${workspaceId}${item.href}`;
           } else {
-            // Standard workspace-scoped routes
-            fullHref = `/workspaces/${workspaceId}${item.href}`;
-            isActive = pathname === `/workspaces/${workspaceId}${item.href}`;
+            // Workspace-scoped routes require an ID
+            if (!selectedWorkspaceId) return null;
+
+            if (item.href === "/timeline") {
+              // Timeline: pass workspaceId and projectId as search params for SSR
+              fullHref = `/workspaces/${selectedWorkspaceId}${item.href}?workspaceId=${selectedWorkspaceId}${projectId ? `&projectId=${projectId}` : ""}`;
+            } else {
+              // Standard workspace-scoped routes
+              fullHref = `/workspaces/${selectedWorkspaceId}${item.href}`;
+            }
+            isActive = pathname === `/workspaces/${selectedWorkspaceId}${item.href}`;
           }
 
           const Icon = isActive ? item.activeIcon : item.icon;

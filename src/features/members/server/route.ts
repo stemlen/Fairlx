@@ -49,7 +49,7 @@ const app = new Hono()
               profileImageUrl: prefs?.profileImageUrl ?? null,
             };
           } catch {
-            // User not found - skip this member (likely deleted user)
+            // Skip missing user
             console.warn(`Skipping member ${member.$id}: User ${member.userId} not found`);
             return null;
           }
@@ -110,7 +110,7 @@ const app = new Hono()
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Check authorization: user can delete self OR must be ADMIN/OWNER
+    // Verify delete permissions
     const isAdminOrOwner = member.role === MemberRole.ADMIN || member.role === MemberRole.OWNER;
     const isDeletingSelf = member.$id === memberToDelete.$id;
 
@@ -118,19 +118,19 @@ const app = new Hono()
       return c.json({ error: "Unauthorized. Only admins or owners can remove other members." }, 401);
     }
 
-    // Prevent deleting the only member
+    // Prevent last member deletion
     if (allMembersInWorkspace.total === 1) {
       return c.json({ error: "Cannot delete the only member." }, 400);
     }
 
-    // Prevent OWNER from leaving without transferring ownership first
+    // Enforce owner transfer
     if (memberToDelete.role === MemberRole.OWNER && isDeletingSelf) {
       return c.json({
         error: "Cannot leave workspace as owner. Transfer ownership to another member first."
       }, 400);
     }
 
-    // Prevent non-owners from removing the OWNER
+    // Protect owner role
     if (memberToDelete.role === MemberRole.OWNER && !isDeletingSelf) {
       return c.json({
         error: "Cannot remove the workspace owner. They must transfer ownership first."

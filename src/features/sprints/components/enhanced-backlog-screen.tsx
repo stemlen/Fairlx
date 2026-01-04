@@ -265,6 +265,10 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
   };
 
   const handleStartSprint = (sprintId: string) => {
+    if (sprints.find(s => s.status === SprintStatus.ACTIVE)) {
+      toast.error("Another sprint is already active. Please complete it first.");
+      return;
+    }
     updateSprint({
       param: { sprintId },
       json: { status: SprintStatus.ACTIVE },
@@ -677,6 +681,8 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                               size="sm"
                               variant="outline"
                               onClick={() => handleStartSprint(sprint.$id)}
+                              disabled={!!sprints.find(s => s.status === SprintStatus.ACTIVE)}
+                              title={!!sprints.find(s => s.status === SprintStatus.ACTIVE) ? "Another sprint is already active" : undefined}
                             >
                               <Play className="size-3 mr-1.5" />
                               Start sprint
@@ -1009,6 +1015,8 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                       e.stopPropagation();
                                       handleStartSprint(sprint.$id);
                                     }}
+                                    disabled={!!sprints.find(s => s.status === SprintStatus.ACTIVE)}
+                                    title={!!sprints.find(s => s.status === SprintStatus.ACTIVE) ? "Another sprint is already active" : undefined}
                                     className="h-8 text-xs font-medium"
                                   >
                                     <Play className="w-3.5 h-3.5 mr-1.5" />

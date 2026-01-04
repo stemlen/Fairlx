@@ -1,15 +1,17 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { ID, Query, Storage as StorageType } from "node-appwrite";
+import { ID, Query, Storage as StorageType, Databases } from "node-appwrite";
 
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { createAdminClient } from "@/lib/appwrite";
-import { 
-  DATABASE_ID, 
-  PROJECT_DOCS_ID, 
-  PROJECT_DOCS_BUCKET_ID, 
-  PROJECTS_ID, 
+import { trackUsage, estimateTokens, createIdempotencyKey } from "@/lib/track-usage";
+import { ResourceType, UsageSource, UsageModule } from "@/features/usage/types";
+import {
+  DATABASE_ID,
+  PROJECT_DOCS_ID,
+  PROJECT_DOCS_BUCKET_ID,
+  PROJECTS_ID,
   WORK_ITEMS_ID,
   MEMBERS_ID,
 } from "@/config";
@@ -17,16 +19,70 @@ import { getMember } from "@/features/members/utils";
 import { Member } from "@/features/members/types";
 import { ProjectDocsAI } from "../lib/project-docs-ai";
 import { ProjectDocument } from "../types";
-import { WorkItem, WorkItemStatus, WorkItemPriority } from "@/features/sprints/types";
-import { 
-  ProjectAIContext, 
-  DocumentContext, 
+import { WorkItem, WorkItemStatus, WorkItemPriority, WorkItemType } from "@/features/sprints/types";
+import { Project } from "@/features/projects/types";
+import {
+  ProjectAIContext,
+  DocumentContext,
   TaskContext,
   MemberContext,
   ProjectAIAnswer,
   AITaskData,
   AITaskResponse,
 } from "../types/ai-context";
+
+// Generate unique work item key
+async function generateWorkItemKey(
+  databases: Databases,
+  projectId: string
+): Promise<string> {
+  const project = await databases.getDocument(
+    DATABASE_ID,
+    PROJECTS_ID,
+    projectId
+  ) as Project;
+
+  // Get project prefix (first 3-4 letters of project name in uppercase)
+  const prefix = project.name
+    .replace(/[^a-zA-Z]/g, "")
+    .substring(0, 4)
+    .toUpperCase() || "PROJ";
+
+  // Get all work items for this project to find the highest key number
+  const workItems = await databases.listDocuments(
+    DATABASE_ID,
+    WORK_ITEMS_ID,
+    [
+      Query.equal("projectId", projectId),
+      Query.orderDesc("$createdAt"),
+      Query.limit(100), // Get more items to find the highest number
+    ]
+  );
+
+  // Extract key numbers and find the highest one
+  let highestNumber = 0;
+  const keyPattern = new RegExp(`^${prefix}-(\\d+)$`);
+
+  for (const item of workItems.documents as unknown as WorkItem[]) {
+    if (item.key) {
+      const match = item.key.match(keyPattern);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > highestNumber) {
+          highestNumber = num;
+        }
+      }
+    }
+  }
+
+  // If no items found, also check the total count as a fallback
+  if (highestNumber === 0) {
+    highestNumber = workItems.total;
+  }
+
+  const nextNumber = highestNumber + 1;
+  return `${prefix}-${nextNumber}`;
+}
 
 // Schema for asking questions
 const askProjectQuestionSchema = z.object({
@@ -90,27 +146,27 @@ async function extractDocumentText(
     // For now, we'll fetch the raw file content
     // In production, you'd want to use a PDF parsing library like pdf-parse
     const fileBuffer = await storage.getFileDownload(bucketId, fileId);
-    
+
     // If it's a text-based file, convert to string
     if (
-      mimeType.includes("text/") || 
+      mimeType.includes("text/") ||
       mimeType.includes("application/json") ||
       mimeType.includes("application/xml")
     ) {
       const decoder = new TextDecoder("utf-8");
       return decoder.decode(fileBuffer);
     }
-    
+
     // For PDFs and other binary formats, we'd need specialized parsing
     // For now, return a placeholder indicating the document exists
     if (mimeType.includes("pdf")) {
       return "[PDF Document - Content available for AI analysis]";
     }
-    
+
     if (mimeType.includes("word") || mimeType.includes("document")) {
       return "[Word Document - Content available for AI analysis]";
     }
-    
+
     return "[Document content not extractable]";
   } catch (error) {
     console.error("Error extracting document text:", error);
@@ -238,7 +294,7 @@ const app = new Hono()
             .map(id => memberMap.get(id))
             .filter(Boolean)
             .map(m => m!.name || m!.email || "Unknown");
-          
+
           return {
             id: workItem.$id,
             name: workItem.title,
@@ -397,18 +453,18 @@ ${extractedText.slice(0, 5000)}
             .filter(Boolean)
             .map(m => m!.name || m!.email || "Unknown");
           const assigneeDisplay = assigneeNames.length > 0 ? assigneeNames.join(", ") : "Unassigned";
-          
+
           // Format due date
-          const dueDateDisplay = workItem.dueDate 
-            ? new Date(workItem.dueDate).toLocaleDateString() 
+          const dueDateDisplay = workItem.dueDate
+            ? new Date(workItem.dueDate).toLocaleDateString()
             : "No due date";
-          
+
           return `- **${workItem.title}** [${workItem.status}] ${workItem.priority ? `(${workItem.priority})` : ""} | Assigned to: ${assigneeDisplay} | Due: ${dueDateDisplay} | Labels: ${workItem.labels?.join(", ") || "None"} | Est. Hours: ${workItem.estimatedHours || "Not set"} - ${workItem.description?.slice(0, 200) || "No description"}`;
         }).join("\n");
 
         // Format members context
         const memberContexts = membersResponse.documents.map((m) => {
-          const taskCount = workItemsResponse.documents.filter(w => 
+          const taskCount = workItemsResponse.documents.filter(w =>
             w.assigneeIds?.includes(m.$id)
           ).length;
           return `- **${m.name || m.email || "Unknown"}** (${m.role}) - ${taskCount} task(s) assigned`;
@@ -456,6 +512,24 @@ Provide a comprehensive, helpful answer:`;
         // Call Project Docs AI
         const answer = await projectDocsAI.answerProjectQuestion(prompt);
 
+        // Track usage for DOCS AI question (non-blocking)
+        trackUsage({
+          workspaceId,
+          projectId,
+          module: UsageModule.DOCS,
+          resourceType: ResourceType.COMPUTE,
+          units: 1,
+          source: UsageSource.AI,
+          metadata: {
+            operation: "ask_question",
+            promptLength: prompt.length,
+            answerLength: answer.length,
+            tokensEstimate: estimateTokens(prompt + answer),
+            documentsUsed: docsResponse.documents.length,
+          },
+          idempotencyKey: createIdempotencyKey(UsageModule.DOCS, "ask", projectId),
+        });
+
         const response: ProjectAIAnswer = {
           question,
           answer,
@@ -471,8 +545,8 @@ Provide a comprehensive, helpful answer:`;
         return c.json({ data: response });
       } catch (error) {
         console.error("Error answering question:", error);
-        return c.json({ 
-          error: error instanceof Error ? error.message : "Failed to process question" 
+        return c.json({
+          error: error instanceof Error ? error.message : "Failed to process question"
         }, 500);
       }
     }
@@ -538,7 +612,7 @@ Provide a comprehensive, helpful answer:`;
         );
 
         // Format members for AI context
-        const membersList = membersResponse.documents.map(m => 
+        const membersList = membersResponse.documents.map(m =>
           `- ${m.name || m.email} (ID: ${m.$id}, Role: ${m.role})`
         ).join("\n");
 
@@ -614,6 +688,23 @@ IMPORTANT:
 
         const aiResponse = await projectDocsAI.answerProjectQuestion(aiPrompt);
 
+        // Track usage for DOCS AI task creation (non-blocking)
+        trackUsage({
+          workspaceId,
+          projectId,
+          module: UsageModule.DOCS,
+          resourceType: ResourceType.COMPUTE,
+          units: 1,
+          source: UsageSource.AI,
+          metadata: {
+            operation: "create_task",
+            promptLength: aiPrompt.length,
+            responseLength: aiResponse.length,
+            tokensEstimate: estimateTokens(aiPrompt + aiResponse),
+          },
+          idempotencyKey: createIdempotencyKey(UsageModule.DOCS, "create_task", projectId),
+        });
+
         // Parse AI response to extract task data
         let taskData: AITaskData;
         try {
@@ -631,7 +722,7 @@ IMPORTANT:
           cleanedResponse = cleanedResponse.trim();
 
           taskData = JSON.parse(cleanedResponse);
-          
+
           // Validate required field
           if (!taskData.name) {
             throw new Error("Work item title is required");
@@ -672,6 +763,8 @@ IMPORTANT:
                 ? (highestPositionWorkItem.documents[0] as WorkItem).position + 1000
                 : 1000;
 
+            const key = await generateWorkItemKey(databases, projectId);
+
             const workItem = await databases.createDocument(
               DATABASE_ID,
               WORK_ITEMS_ID,
@@ -679,8 +772,11 @@ IMPORTANT:
               {
                 title: taskData.name,
                 description: taskData.description || "",
+                type: WorkItemType.TASK,
                 status: taskData.status,
                 priority: taskData.priority,
+                flagged: false,
+                key,
                 dueDate: taskData.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
                 endDate: taskData.endDate || undefined,
                 assigneeIds: taskData.assigneeIds || [],
@@ -774,8 +870,8 @@ IMPORTANT:
         } satisfies AITaskResponse);
       } catch (error) {
         console.error("Error creating task via AI:", error);
-        return c.json({ 
-          error: error instanceof Error ? error.message : "Failed to process task creation" 
+        return c.json({
+          error: error instanceof Error ? error.message : "Failed to process task creation"
         }, 500);
       }
     }
@@ -833,7 +929,7 @@ IMPORTANT:
           ]
         );
 
-        const membersList = membersResponse.documents.map(m => 
+        const membersList = membersResponse.documents.map(m =>
           `- ${m.name || m.email} (ID: ${m.$id}, Role: ${m.role})`
         ).join("\n");
 
@@ -894,6 +990,24 @@ IMPORTANT:
 
         const aiResponse = await projectDocsAI.answerProjectQuestion(aiPrompt);
 
+        // Track usage for DOCS AI task update (non-blocking)
+        trackUsage({
+          workspaceId,
+          projectId,
+          module: UsageModule.DOCS,
+          resourceType: ResourceType.COMPUTE,
+          units: 1,
+          source: UsageSource.AI,
+          metadata: {
+            operation: "update_task",
+            taskId,
+            promptLength: aiPrompt.length,
+            responseLength: aiResponse.length,
+            tokensEstimate: estimateTokens(aiPrompt + aiResponse),
+          },
+          idempotencyKey: createIdempotencyKey(UsageModule.DOCS, `update_task_${taskId}`, projectId),
+        });
+
         // Parse AI response
         let updateData: Partial<AITaskData>;
         try {
@@ -939,7 +1053,7 @@ IMPORTANT:
         if (autoExecute) {
           try {
             const updatePayload: Record<string, unknown> = {};
-            
+
             if (updateData.name !== undefined) updatePayload.title = updateData.name;
             if (updateData.description !== undefined) updatePayload.description = updateData.description;
             if (updateData.status !== undefined) updatePayload.status = updateData.status;
@@ -948,7 +1062,7 @@ IMPORTANT:
             if (updateData.endDate !== undefined) updatePayload.endDate = updateData.endDate;
             if (updateData.labels !== undefined) updatePayload.labels = updateData.labels;
             if (updateData.estimatedHours !== undefined) updatePayload.estimatedHours = updateData.estimatedHours;
-            
+
             if (updateData.assigneeIds && updateData.assigneeIds.length > 0) {
               updatePayload.assigneeIds = updateData.assigneeIds;
             }
@@ -1041,7 +1155,7 @@ IMPORTANT:
             Query.limit(100),
           ]
         );
-        
+
         const existingProjectLabels = new Set<string>();
         projectWorkItemsResponse.documents.forEach(t => {
           if (t.labels) {
@@ -1085,8 +1199,8 @@ IMPORTANT:
         } satisfies AITaskResponse);
       } catch (error) {
         console.error("Error updating work item via AI:", error);
-        return c.json({ 
-          error: error instanceof Error ? error.message : "Failed to process work item update" 
+        return c.json({
+          error: error instanceof Error ? error.message : "Failed to process work item update"
         }, 500);
       }
     }
@@ -1126,7 +1240,7 @@ IMPORTANT:
           }
 
           const updatePayload: Record<string, unknown> = {};
-          
+
           if (taskData.name !== undefined) updatePayload.title = taskData.name;
           if (taskData.description !== undefined) updatePayload.description = taskData.description;
           if (taskData.status !== undefined) updatePayload.status = taskData.status;
@@ -1135,7 +1249,7 @@ IMPORTANT:
           if (taskData.endDate !== undefined) updatePayload.endDate = taskData.endDate;
           if (taskData.labels !== undefined) updatePayload.labels = taskData.labels;
           if (taskData.estimatedHours !== undefined) updatePayload.estimatedHours = taskData.estimatedHours;
-          
+
           if (taskData.assigneeIds && taskData.assigneeIds.length > 0) {
             updatePayload.assigneeIds = taskData.assigneeIds;
           }
@@ -1190,6 +1304,8 @@ IMPORTANT:
             ? (highestPositionWorkItem.documents[0] as WorkItem).position + 1000
             : 1000;
 
+        const key = await generateWorkItemKey(databases, projectId);
+
         const workItem = await databases.createDocument(
           DATABASE_ID,
           WORK_ITEMS_ID,
@@ -1197,8 +1313,11 @@ IMPORTANT:
           {
             title: taskData.name,
             description: taskData.description || "",
+            type: WorkItemType.TASK,
             status: taskData.status || WorkItemStatus.TODO,
             priority: taskData.priority || WorkItemPriority.MEDIUM,
+            flagged: false,
+            key,
             dueDate: taskData.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // Default to 1 week from now
             endDate: taskData.endDate || undefined,
             assigneeIds: taskData.assigneeIds || [],
@@ -1231,8 +1350,8 @@ IMPORTANT:
         } satisfies AITaskResponse);
       } catch (error) {
         console.error("Error executing work item operation:", error);
-        return c.json({ 
-          error: error instanceof Error ? error.message : "Failed to execute work item operation" 
+        return c.json({
+          error: error instanceof Error ? error.message : "Failed to execute work item operation"
         }, 500);
       }
     }

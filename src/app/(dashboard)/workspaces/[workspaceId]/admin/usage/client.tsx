@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import {
     CalendarIcon,
@@ -19,10 +19,13 @@ import { PageLoader } from "@/components/page-loader";
 import { PageError } from "@/components/page-error";
 import { cn } from "@/lib/utils";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
+import { useGetWorkspaces } from "@/features/workspaces/api/use-get-workspaces";
+import { useGetProjects } from "@/features/projects/api/use-get-projects";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
 import { useCurrent } from "@/features/auth/api/use-current";
 import { useAccountType } from "@/features/organizations/hooks/use-account-type";
 import { useGetOrganizations } from "@/features/organizations/api/use-get-organizations";
+import { useCurrentOrgMember } from "@/features/organizations/api/use-current-org-member";
 import {
     useGetUsageEvents,
     useGetUsageSummary,
@@ -38,7 +41,7 @@ import {
     WorkspaceUsageBreakdown,
 } from "@/features/usage/components";
 import { BillingEntityBadge } from "@/components/billing-entity-badge";
-import { ResourceType, UsageSource, UsageSummary } from "@/features/usage/types";
+import { ResourceType, UsageSource } from "@/features/usage/types";
 
 export function UsageDashboardClient() {
     const workspaceId = useWorkspaceId();
@@ -46,15 +49,41 @@ export function UsageDashboardClient() {
     const { isAdmin, isLoading: isMemberLoading } = useCurrentMember({ workspaceId });
     const { isOrg, primaryOrganizationId } = useAccountType();
     const { data: organizations } = useGetOrganizations();
+    const { data: workspacesData } = useGetWorkspaces();
+    const { data: projectsData } = useGetProjects({ workspaceId });
+    const { canEdit: isOrgAdmin, isLoading: isOrgMemberLoading } = useCurrentOrgMember({
+        organizationId: primaryOrganizationId || ""
+    });
 
     // Get current org for ORG accounts
     const currentOrg = isOrg && primaryOrganizationId
         ? organizations?.documents?.find((o: { $id: string }) => o.$id === primaryOrganizationId)
         : null;
 
+    // Create name lookup maps for context display
+    const workspaceNames = useMemo(() => {
+        const map = new Map<string, string>();
+        if (workspacesData?.documents) {
+            for (const ws of workspacesData.documents) {
+                map.set(ws.$id, ws.name);
+            }
+        }
+        return map;
+    }, [workspacesData]);
+
+    const projectNames = useMemo(() => {
+        const map = new Map<string, string>();
+        if (projectsData?.documents) {
+            for (const proj of projectsData.documents) {
+                map.set(proj.$id, proj.name);
+            }
+        }
+        return map;
+    }, [projectsData]);
+
     // State for filters
     const [page, setPage] = useState(0);
-    const pageSize = 50;
+    const pageSize = 10;
     const [resourceTypeFilter, setResourceTypeFilter] = useState<ResourceType | undefined>();
     const [sourceFilter, setSourceFilter] = useState<UsageSource | undefined>();
     const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({
@@ -65,13 +94,20 @@ export function UsageDashboardClient() {
     // Current period for summary
     const currentPeriod = format(new Date(), "yyyy-MM");
 
-    // Queries
+    // CRITICAL FIX: Determine query parameters based on account type
+    // For ORG accounts, use organizationId for org-level aggregation
+    // For PERSONAL accounts, use workspaceId for workspace-level queries
+    const usageQueryParams = isOrg && primaryOrganizationId
+        ? { organizationId: primaryOrganizationId }
+        : { workspaceId };
+
+    // Queries - now using correct context for org vs personal
     const {
         data: eventsData,
         isLoading: isEventsLoading,
         refetch: refetchEvents,
     } = useGetUsageEvents({
-        workspaceId,
+        ...usageQueryParams,
         resourceType: resourceTypeFilter,
         source: sourceFilter,
         startDate: dateRange.from?.toISOString(),
@@ -81,12 +117,12 @@ export function UsageDashboardClient() {
     });
 
     const { data: summaryData, isLoading: isSummaryLoading } = useGetUsageSummary({
-        workspaceId,
+        ...usageQueryParams,
         period: currentPeriod,
     });
 
     const { data: alertsData, isLoading: isAlertsLoading } = useGetUsageAlerts({
-        workspaceId,
+        ...usageQueryParams,
     });
 
     const exportUsage = useExportUsage();
@@ -95,7 +131,7 @@ export function UsageDashboardClient() {
     const handleExport = async (format: "csv" | "json") => {
         try {
             const result = await exportUsage.mutateAsync({
-                workspaceId,
+                ...usageQueryParams,
                 format,
                 startDate: dateRange.from?.toISOString(),
                 endDate: dateRange.to?.toISOString(),
@@ -130,12 +166,14 @@ export function UsageDashboardClient() {
     };
 
     // Loading state
-    if (isMemberLoading) {
+    if (isMemberLoading || isOrgMemberLoading) {
         return <PageLoader />;
     }
 
-    // Admin check
-    if (!isAdmin) {
+    // Admin check - either workspace admin (if in workspace) or org admin (if org account)
+    const hasAdminAccess = workspaceId ? isAdmin : (isOrg && isOrgAdmin);
+
+    if (!hasAdminAccess) {
         return (
             <PageError message="You need admin access to view the usage dashboard." />
         );
@@ -143,11 +181,11 @@ export function UsageDashboardClient() {
 
     const events = eventsData?.data?.documents || [];
     const totalEvents = eventsData?.data?.total || 0;
-    const summary = (summaryData?.data as UsageSummary) || null;
+    const summary = summaryData?.data || null;
     const alerts = alertsData?.data?.documents || [];
 
     return (
-        <div className="h-full">
+        <div>
             <div className="max-w-[1600px] mx-auto">
                 {/* Header Section - Matching workspace dashboard style */}
                 <div className="mb-8">
@@ -268,7 +306,7 @@ export function UsageDashboardClient() {
                         <UsageKPICards summary={summary} isLoading={isSummaryLoading} />
 
                         {/* Charts */}
-                        <UsageCharts events={events} isLoading={isEventsLoading} />
+                        <UsageCharts events={events} summary={summary} isLoading={isEventsLoading || isSummaryLoading} />
 
                         {/* Events Table */}
                         <UsageEventsTable
@@ -283,19 +321,26 @@ export function UsageDashboardClient() {
                             sourceFilter={sourceFilter}
                             onResourceTypeFilterChange={setResourceTypeFilter}
                             onSourceFilterChange={setSourceFilter}
+                            workspaceNames={workspaceNames}
+                            projectNames={projectNames}
+                            dateRange={dateRange}
+                            onDateRangeChange={setDateRange}
                         />
 
                         {/* Workspace Breakdown - ORG accounts only */}
                         {isOrg && primaryOrganizationId && (
                             <WorkspaceUsageBreakdown
                                 organizationId={primaryOrganizationId}
-                                isLoading={isSummaryLoading}
+                                events={eventsData?.data?.documents || []}
+                                summary={summary}
+                                workspaces={workspacesData?.documents?.map((w) => ({ $id: w.$id, name: w.name })) || []}
+                                isLoading={isEventsLoading || isSummaryLoading}
                             />
                         )}
                     </div>
 
                     {/* Right Sidebar (3 columns) - Matching workspace dashboard */}
-                    <div className="col-span-12 xl:col-span-3 flex flex-col space-y-4 h-full">
+                    <div className="col-span-12 xl:col-span-3 flex flex-col space-y-4">
                         {/* Cost Summary */}
                         <CostSummary summary={summary} isLoading={isSummaryLoading} />
 

@@ -9,7 +9,6 @@ import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 import { useCreateWorkspaceModal } from "@/features/workspaces/hooks/use-create-workspace-modal";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
 import { useDeleteMember } from "@/features/members/api/use-delete-member";
-import { useAccountType } from "@/features/organizations/hooks/use-account-type";
 import { useGetOrganizations } from "@/features/organizations/api/use-get-organizations";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useAppRefresh } from "@/hooks/use-app-refresh";
@@ -37,24 +36,39 @@ import {
 } from "@/components/ui/tooltip";
 import { useRouter } from "next/navigation";
 
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
+
 export const WorkspaceSwitcher = () => {
-  const workspaceId = useWorkspaceId();
   const router = useRouter();
   const { data: workspaces } = useGetWorkspaces();
   const { open } = useCreateWorkspaceModal();
-  const { member } = useCurrentMember({ workspaceId });
-  const { mutate: deleteMember } = useDeleteMember();
-  const { isOrg, primaryOrganizationId } = useAccountType();
-  const { data: organizations } = useGetOrganizations();
   const { refresh, isRefreshing } = useAppRefresh();
 
+  const { lifecycleState: state } = useAccountLifecycle();
+  const {
+    hasOrg,
+    activeOrgId,
+    activeWorkspaceId,
+    user
+  } = state;
+
+  const urlWorkspaceId = useWorkspaceId();
+  // Use URL workspaceId if available, otherwise fallback to global active workspaceId
+  const selectedWorkspaceId = urlWorkspaceId || activeWorkspaceId || "";
+
+  const { member } = useCurrentMember({ workspaceId: selectedWorkspaceId });
+  const { mutate: deleteMember } = useDeleteMember();
+
+  const { data: organizations } = useGetOrganizations();
+
   // Get current organization for ORG accounts
-  const currentOrg = isOrg && primaryOrganizationId
-    ? organizations?.documents?.find((o: { $id: string }) => o.$id === primaryOrganizationId)
+  const currentOrg = hasOrg && activeOrgId
+    ? organizations?.documents?.find((o: { $id: string }) => o.$id === activeOrgId)
     : null;
 
   // PERSONAL accounts can only have one workspace
-  const canCreateWorkspace = isOrg || (workspaces?.documents?.length ?? 0) === 0;
+  const accountType = user?.prefs?.accountType || "PERSONAL";
+  const canCreateWorkspace = accountType === "ORG" || (workspaces?.documents?.length ?? 0) === 0;
 
   const [ConfirmDialog, confirm] = useConfirm(
     "Leave Workspace",
@@ -63,6 +77,10 @@ export const WorkspaceSwitcher = () => {
   );
 
   const onSelect = (id: string) => {
+    router.push(`/workspaces/${id}`);
+  };
+
+  const handleWorkspaceClick = (id: string) => {
     router.push(`/workspaces/${id}`);
   };
 
@@ -94,7 +112,7 @@ export const WorkspaceSwitcher = () => {
         <ConfirmDialog />
 
         {/* Organization indicator for ORG accounts with refresh */}
-        {isOrg && currentOrg && (
+        {hasOrg && currentOrg && (
           <div className="flex items-center justify-between px-2 pb-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Building2 className="h-3.5 w-3.5" />
@@ -165,7 +183,7 @@ export const WorkspaceSwitcher = () => {
           </DropdownMenu>
         </div>
 
-        <Select onValueChange={onSelect} value={workspaceId}>
+        <Select onValueChange={onSelect} value={selectedWorkspaceId}>
 
           <SelectTrigger className="w-full  font-medium text-sm ">
             <SelectValue placeholder="No workspace selected." />
@@ -173,7 +191,14 @@ export const WorkspaceSwitcher = () => {
 
           <SelectContent>
             {workspaces?.documents.map((workspace) => (
-              <SelectItem key={workspace.$id} value={workspace.$id}>
+              <SelectItem
+                key={workspace.$id}
+                value={workspace.$id}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  handleWorkspaceClick(workspace.$id);
+                }}
+              >
                 <div className="flex justify-start items-center gap-3 font-medium">
                   <WorkspaceAvatar
                     name={workspace.name}

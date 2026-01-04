@@ -97,6 +97,7 @@ const app = new Hono()
         flagged: z.string().transform(val => val === "true").optional(),
         search: z.string().optional(),
         includeChildren: z.string().transform(val => val === "true").optional(),
+        limit: z.coerce.number().min(1).max(1000).optional(),
       })
     ),
     async (c) => {
@@ -117,6 +118,7 @@ const app = new Hono()
         flagged,
         search,
         includeChildren,
+        limit,
       } = c.req.valid("query");
 
       const member = await getMember({
@@ -184,6 +186,10 @@ const app = new Hono()
 
       if (search) {
         query.push(Query.search("title", search));
+      }
+
+      if (limit) {
+        query.push(Query.limit(limit));
       }
 
       const workItems = await databases.listDocuments<WorkItem>(

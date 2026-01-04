@@ -6,3 +6,4 @@ export { useCreateUsageAlert } from "./use-create-usage-alert";
 export { useUpdateUsageAlert } from "./use-update-usage-alert";
 export { useDeleteUsageAlert } from "./use-delete-usage-alert";
 export { useExportUsage } from "./use-export-usage";
+export { useGetInvoices } from "./use-get-invoices";

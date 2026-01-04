@@ -5,6 +5,8 @@ import { z } from "zod";
 import { CODE_DOCS_ID, DATABASE_ID, GITHUB_REPOS_ID, PROJECTS_ID } from "@/config";
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { getMember } from "@/features/members/utils";
+import { trackUsage, createIdempotencyKey, estimateTokens } from "@/lib/track-usage";
+import { ResourceType, UsageSource, UsageModule } from "@/features/usage/types";
 import { GitHubAPI } from "../lib/github-api";
 import { GeminiAPI } from "../lib/gemini-api";
 import { GitHubRepository } from "../types";
@@ -104,7 +106,7 @@ const app = new Hono()
         // 7. Fetch commit history for questions about commits, authors, or history
         // Keywords that suggest the question is about commits/history
         const historyKeywords = ['commit', 'author', 'contributor', 'history', 'when', 'who', 'initial', 'first', 'last', 'recent'];
-        const needsCommitHistory = historyKeywords.some(keyword => 
+        const needsCommitHistory = historyKeywords.some(keyword =>
           question.toLowerCase().includes(keyword)
         );
 
@@ -125,7 +127,7 @@ const app = new Hono()
               repository.branch,
               100
             );
-            
+
             commits = rawCommits.map((c: { sha: string; commit: { message: string; author: { name: string; date: string } }; html_url: string }) => ({
               hash: c.sha,
               message: c.commit.message,
@@ -141,7 +143,7 @@ const app = new Hono()
 
         // 8. Generate answer using Gemini (real-time)
         const geminiAPI = new GeminiAPI();
-        
+
         if (!geminiAPI.isConfigured()) {
           return c.json(
             {
@@ -171,6 +173,25 @@ const app = new Hono()
         };
 
         const answer = await geminiAPI.answerQuestion(question, codebaseContext);
+
+        // Track usage for GitHub Q&A (non-blocking)
+        trackUsage({
+          workspaceId: project.workspaceId,
+          projectId,
+          module: UsageModule.GITHUB,
+          resourceType: ResourceType.COMPUTE,
+          units: 1,
+          source: UsageSource.AI,
+          metadata: {
+            operation: "ask_question",
+            repositoryName: repository.repositoryName,
+            filesUsed: files.length,
+            questionLength: question.length,
+            answerLength: answer.length,
+            tokensEstimate: estimateTokens(question + answer),
+          },
+          idempotencyKey: createIdempotencyKey(UsageModule.GITHUB, "qa", projectId),
+        });
 
         return c.json({
           data: {

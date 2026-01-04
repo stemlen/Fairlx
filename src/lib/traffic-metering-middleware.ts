@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createMiddleware } from "hono/factory";
-import { Databases, ID } from "node-appwrite";
+import { Databases, ID, Query } from "node-appwrite";
 import { DATABASE_ID, USAGE_EVENTS_ID, WORKSPACES_ID, ORGANIZATIONS_ID } from "@/config";
 import { ResourceType, UsageSource } from "@/features/usage/types";
 
@@ -45,18 +45,87 @@ function estimatePayloadSize(obj: unknown): number {
  * Extract workspace ID from request (URL or body)
  */
 function extractWorkspaceId(url: string, body?: Record<string, unknown>): string | null {
-    // Try URL path: /api/workspaces/{workspaceId}/...
-    const pathMatch = url.match(/\/workspaces\/([a-zA-Z0-9]+)/);
+    try {
+        const urlObj = new URL(url, 'http://localhost');
+        const pathname = urlObj.pathname;
+
+        // More robust regex for ID extraction
+        const matches = [
+            pathname.match(/\/workspaces\/([a-zA-Z0-9_-]+)/),
+            pathname.match(/workspaceId=([a-zA-Z0-9_-]+)/)
+        ];
+
+        for (const match of matches) {
+            if (match && match[1]) return match[1];
+        }
+
+        const queryWorkspaceId = urlObj.searchParams.get('workspaceId');
+        if (queryWorkspaceId) return queryWorkspaceId;
+
+        if (body && typeof body.workspaceId === 'string') {
+            return body.workspaceId;
+        }
+    } catch {
+        // Fallback to simple string searching if URL parsing fails
+        const pathMatch = url.match(/\/workspaces\/([a-zA-Z0-9_-]+)/);
+        if (pathMatch) return pathMatch[1];
+    }
+
+    return null;
+}
+
+/**
+ * Extract organization ID from request (URL or body)
+ */
+function extractOrganizationId(url: string, body?: Record<string, unknown>): string | null {
+    try {
+        const urlObj = new URL(url, 'http://localhost');
+        const pathname = urlObj.pathname;
+
+        // More robust regex for ID extraction
+        const matches = [
+            pathname.match(/\/organizations\/([a-zA-Z0-9_-]+)/),
+            pathname.match(/organizationId=([a-zA-Z0-9_-]+)/),
+            pathname.match(/orgId=([a-zA-Z0-9_-]+)/)
+        ];
+
+        for (const match of matches) {
+            if (match && match[1]) return match[1];
+        }
+
+        const queryOrgId = urlObj.searchParams.get('organizationId') || urlObj.searchParams.get('orgId');
+        if (queryOrgId) return queryOrgId;
+
+        if (body) {
+            if (typeof body.organizationId === 'string') return body.organizationId;
+            if (typeof body.orgId === 'string') return body.orgId;
+        }
+    } catch {
+        // Fallback to simple string searching if URL parsing fails
+        const orgMatch = url.match(/\/organizations\/([a-zA-Z0-9_-]+)/);
+        if (orgMatch) return orgMatch[1];
+    }
+
+    return null;
+}
+
+
+/**
+ * Extract project ID from request (URL or body)
+ */
+function extractProjectId(url: string, body?: Record<string, unknown>): string | null {
+    // Try URL path: .../projects/{projectId}/...
+    const pathMatch = url.match(/\/projects\/([a-zA-Z0-9]+)/);
     if (pathMatch) return pathMatch[1];
 
-    // Try URL query: ?workspaceId=...
+    // Try URL query: ?projectId=...
     const urlObj = new URL(url, 'http://localhost');
-    const queryWorkspaceId = urlObj.searchParams.get('workspaceId');
-    if (queryWorkspaceId) return queryWorkspaceId;
+    const queryProjectId = urlObj.searchParams.get('projectId');
+    if (queryProjectId) return queryProjectId;
 
     // Try body
-    if (body && typeof body.workspaceId === 'string') {
-        return body.workspaceId;
+    if (body && typeof body.projectId === 'string') {
+        return body.projectId;
     }
 
     return null;
@@ -115,8 +184,10 @@ export const trafficMeteringMiddleware = createMiddleware<MeteringContext>(
         const totalBytes = requestSize + responseSize;
         const duration = Date.now() - startTime;
 
-        // Extract workspace ID for attribution
+        // Extract IDs for attribution
         const workspaceId = extractWorkspaceId(requestUrl, requestBody || undefined);
+        const organizationId = extractOrganizationId(requestUrl, requestBody || undefined);
+        const projectId = extractProjectId(requestUrl, requestBody || undefined);
 
         // Get databases and user from context
         const databases = c.get('databases');
@@ -137,10 +208,11 @@ export const trafficMeteringMiddleware = createMiddleware<MeteringContext>(
             // Fire and forget - don't block the response
             // Using setTimeout to ensure response is sent first
             setTimeout(async () => {
+                let eventData: Record<string, unknown> | null = null;
                 try {
-                    // If no workspace, use a system tracking workspace or skip
-                    // For production, consider creating a "system" workspace for unmapped traffic
-                    if (!workspaceId) {
+                    // CRITICAL FIX: Log ALL traffic, even without workspace context
+                    // For requests without workspace, try organization context
+                    if (!workspaceId && !organizationId) {
                         // Log to console for admin monitoring
                         console.log(`[TrafficMetering] Unattributed traffic: ${endpoint} (${totalBytes} bytes)`);
                         return;
@@ -151,47 +223,71 @@ export const trafficMeteringMiddleware = createMiddleware<MeteringContext>(
                     const eventTimestamp = new Date(startTime).toISOString();
                     let billingEntityId: string | null = null;
                     let billingEntityType: string | null = null;
+                    let targetWorkspaceId = workspaceId;
 
                     try {
-                        // Get workspace to check organizationId
-                        const workspace = await databases.getDocument(
-                            DATABASE_ID,
-                            WORKSPACES_ID,
-                            workspaceId
-                        );
-
-                        // If no organization, bill to workspace owner (user)
-                        if (!workspace.organizationId) {
-                            billingEntityId = workspace.userId;
-                            billingEntityType = 'user';
-                        } else {
-                            // Get organization to check billingStartAt
-                            const organization = await databases.getDocument(
+                        if (workspaceId) {
+                            // Get workspace to check organizationId
+                            const workspace = await databases.getDocument(
                                 DATABASE_ID,
-                                ORGANIZATIONS_ID,
-                                workspace.organizationId
+                                WORKSPACES_ID,
+                                workspaceId
                             );
 
-                            const billingStartAt = organization.billingStartAt
-                                ? new Date(organization.billingStartAt)
-                                : null;
-                            const eventDate = new Date(eventTimestamp);
-
-                            // If event occurred before org billing started, bill to user
-                            if (billingStartAt && eventDate < billingStartAt) {
+                            // If no organization, bill to workspace owner (user)
+                            if (!workspace.organizationId) {
                                 billingEntityId = workspace.userId;
                                 billingEntityType = 'user';
                             } else {
-                                // Event after org billing started, bill to organization
-                                billingEntityId = workspace.organizationId;
-                                billingEntityType = 'organization';
+                                // Get organization to check billingStartAt
+                                const organization = await databases.getDocument(
+                                    DATABASE_ID,
+                                    ORGANIZATIONS_ID,
+                                    workspace.organizationId
+                                );
+
+                                const billingStartAt = organization.billingStartAt
+                                    ? new Date(organization.billingStartAt)
+                                    : null;
+                                const eventDate = new Date(eventTimestamp);
+
+                                // If event occurred before org billing started, bill to user
+                                if (billingStartAt && eventDate < billingStartAt) {
+                                    billingEntityId = workspace.userId;
+                                    billingEntityType = 'user';
+                                } else {
+                                    // Event after org billing started, bill to organization
+                                    billingEntityId = workspace.organizationId;
+                                    billingEntityType = 'organization';
+                                }
+                            }
+                        } else if (organizationId) {
+                            // Organization-level traffic (e.g. /api/organizations/...)
+                            billingEntityId = organizationId;
+                            billingEntityType = 'organization';
+
+                            // Find ANY workspace belonging to this organization to satisfy the schema
+                            const workspaces = await databases.listDocuments(
+                                DATABASE_ID,
+                                WORKSPACES_ID,
+                                [
+                                    Query.equal("organizationId", organizationId),
+                                    Query.limit(1)
+                                ]
+                            );
+
+                            if (workspaces.total > 0) {
+                                targetWorkspaceId = workspaces.documents[0].$id;
+                            } else {
+                                // Org exists but has no workspaces - log but don't bill to missing workspace
+                                console.log(`[TrafficMetering] Unattributed traffic (Org with no workspaces): ${endpoint} (${totalBytes} bytes)`);
+                                return;
                             }
                         }
                     } catch (error: unknown) {
-                        // Check if it's a 404 (workspace not found) - skip silently
+                        // Check if it's a 404 (workspace/org not found) - skip silently
                         const appwriteError = error as { code?: number };
                         if (appwriteError.code === 404) {
-                            // Workspace doesn't exist, skip metering (stale reference)
                             return;
                         }
                         // For other errors, log and continue without billing attribution
@@ -199,9 +295,10 @@ export const trafficMeteringMiddleware = createMiddleware<MeteringContext>(
                     }
 
                     // Build event data
-                    const eventData: Record<string, unknown> = {
-                        workspaceId,
-                        projectId: null,
+                    eventData = {
+                        workspaceId: targetWorkspaceId as string,
+                        projectId, // Can be null, which is fine if optional; if undefined, key is omitted.
+
                         resourceType: ResourceType.TRAFFIC,
                         units: totalBytes,
                         metadata: JSON.stringify({
@@ -229,8 +326,8 @@ export const trafficMeteringMiddleware = createMiddleware<MeteringContext>(
 
                     // TODO: Once Appwrite schema is updated with billingEntityId and billingEntityType fields,
                     // uncomment these lines to enable direct filtering:
-                    // if (billingEntityId) eventData.billingEntityId = billingEntityId;
-                    // if (billingEntityType) eventData.billingEntityType = billingEntityType;
+                    // if (billingEntityId) (eventData as any).billingEntityId = billingEntityId;
+                    // if (billingEntityType) (eventData as any).billingEntityType = billingEntityType;
 
                     await databases.createDocument(
                         DATABASE_ID,
@@ -243,6 +340,9 @@ export const trafficMeteringMiddleware = createMiddleware<MeteringContext>(
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     if (!errorMessage.includes('duplicate') && !errorMessage.includes('unique')) {
                         console.error('[TrafficMetering] Failed to log:', error);
+                        if (eventData) {
+                            console.error('[TrafficMetering] Payload causing error:', JSON.stringify(eventData, null, 2));
+                        }
                     }
                 }
             }, 50);
@@ -276,7 +376,7 @@ export async function logAnonymousTraffic(
             ID.unique(),
             {
                 workspaceId: options.workspaceId,
-                projectId: null,
+
                 resourceType: ResourceType.TRAFFIC,
                 units: options.requestBytes + options.responseBytes,
                 // Note: idempotencyKey stored in metadata until Appwrite collection updated

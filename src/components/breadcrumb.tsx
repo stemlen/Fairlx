@@ -11,6 +11,8 @@ import { useGetTeam } from "@/features/teams/api/use-get-team";
 import { useGetSpace } from "@/features/spaces/api/use-get-space";
 import { useGetSprint } from "@/features/sprints/api/use-get-sprint";
 import { useGetProgram } from "@/features/programs/api/use-get-program";
+import { useGetOrganization } from "@/features/organizations/api/use-get-organization";
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
 import { cn } from "@/lib/utils";
 
 // Map section types to their display labels
@@ -38,6 +40,13 @@ const sectionLabels: Record<string, string> = {
 
 export const Breadcrumb = () => {
   const pathname = usePathname();
+  const { lifecycleState: state } = useAccountLifecycle();
+  const { activeOrgId } = state;
+
+  const { data: organization } = useGetOrganization({
+    orgId: activeOrgId || ""
+  });
+
   const pathSegments = pathname.split("/").filter(Boolean);
 
   // Handle profile routes
@@ -124,7 +133,11 @@ export const Breadcrumb = () => {
   // Handle organization routes (dashboard-level)
   if (isOrganizationRoute) {
     return renderBreadcrumbs([
-      { label: "Organization", href: "/organization", isClickable: true },
+      {
+        label: organization?.name || "Organization",
+        href: "/organization",
+        isClickable: true
+      },
     ]);
   }
 

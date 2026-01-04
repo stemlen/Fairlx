@@ -99,6 +99,7 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
                 sprint={sprint}
                 workspaceId={workspaceId}
                 projectId={projectId}
+                hasActiveSprint={activeSprints.length > 0}
               />
             ))
           ) : (
@@ -119,6 +120,7 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
                 sprint={sprint}
                 workspaceId={workspaceId}
                 projectId={projectId}
+                hasActiveSprint={activeSprints.length > 0}
               />
             ))
           ) : (
@@ -139,6 +141,7 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
                 sprint={sprint}
                 workspaceId={workspaceId}
                 projectId={projectId}
+                hasActiveSprint={activeSprints.length > 0}
               />
             ))
           ) : (

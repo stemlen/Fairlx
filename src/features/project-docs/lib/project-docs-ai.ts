@@ -81,7 +81,7 @@ function extractTextFromResponse(json: GeminiResponse): string {
  */
 export class ProjectDocsAI {
   private apiKey: string;
-  private baseUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+  private baseUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
 
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY || "";
@@ -99,7 +99,7 @@ export class ProjectDocsAI {
 
   private async callGemini(payload: GeminiPayload, retries = 2): Promise<string> {
     this.ensureConfigured();
-    
+
     const url = `${this.baseUrl}?key=${this.apiKey}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -157,9 +157,9 @@ export class ProjectDocsAI {
    * Answer a question about the project using provided context
    */
   async answerProjectQuestion(prompt: string): Promise<string> {
-    const payload = this.buildPayload(prompt, { 
+    const payload = this.buildPayload(prompt, {
       maxTokens: 2000,
-      temperature: 0.3 
+      temperature: 0.3
     });
     return this.callGemini(payload);
   }

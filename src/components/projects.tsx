@@ -16,12 +16,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
 
 export const Projects = () => {
   const router = useRouter();
   const params = useParams();
+  const { lifecycleState: state } = useAccountLifecycle();
+  const { activeWorkspaceId } = state;
   const { open } = useCreateProjectModal();
-  const workspaceId = useWorkspaceId();
+  const urlWorkspaceId = useWorkspaceId();
+
+  // Use URL workspaceId if available, fallback to global active workspaceId
+  const workspaceId = (urlWorkspaceId || activeWorkspaceId || "") as string;
+
   const { data } = useGetProjects({ workspaceId });
   const { isAdmin } = useCurrentMember({ workspaceId });
 
@@ -59,7 +66,7 @@ export const Projects = () => {
             <SelectItem
               key={project.$id}
               value={project.$id}
-              onPointerDown={(e) => {
+              onPointerDown={(e: React.PointerEvent) => {
                 // Allow clicking on already selected item
                 e.stopPropagation();
                 handleProjectClick(project.$id);

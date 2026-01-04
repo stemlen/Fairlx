@@ -1,26 +1,20 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import { useCurrent } from "@/features/auth/api/use-current";
-import { useAccountType } from "@/features/organizations/hooks/use-account-type";
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
 import { useGetWorkspaces } from "@/features/workspaces/api/use-get-workspaces";
 import { useGetOrganizations } from "@/features/organizations/api/use-get-organizations";
 
 /**
- * Global App Readiness Provider
+ * App Readiness Provider - Data Loading Layer
  * 
- * The app is considered READY only when ALL are resolved:
- * - Auth verified
- * - User profile loaded
- * - Account type resolved
- * - Active organization resolved (if ORG)
- * - Active workspace resolved
- * - ORG onboarding completed (if ORG account)
+ * NOTE: Routing/lifecycle guards are now handled by LifecycleGuard.
+ * This provider only handles data loading readiness.
  * 
- * Until isAppReady === true:
- * - Render ONLY a full-screen loader
- * - Do NOT render navbar, sidebar, or content partially
+ * The app is considered READY when:
+ * - Lifecycle state is loaded
+ * - Workspaces are loaded
+ * - Organizations are loaded (if ORG account)
  */
 
 interface AppReadinessContextValue {
@@ -47,55 +41,41 @@ interface AppReadinessProviderProps {
 }
 
 export const AppReadinessProvider = ({ children }: AppReadinessProviderProps) => {
-    const router = useRouter();
-    const pathname = usePathname();
     const [isTimedOut, setIsTimedOut] = useState(false);
     const [retryCount, setRetryCount] = useState(0);
 
-    // Core data hooks
-    const { data: user, isLoading: isUserLoading, refetch: refetchUser } = useCurrent();
-    const { isLoading: isAccountTypeLoading, isOrg } = useAccountType();
+    const { lifecycleState, isLoaded, refreshLifecycle } = useAccountLifecycle();
+    const {
+        isAuthenticated,
+        hasOrg
+    } = lifecycleState;
+
     const { isLoading: isWorkspacesLoading, refetch: refetchWorkspaces } = useGetWorkspaces();
     const { isLoading: isOrgsLoading, refetch: refetchOrgs } = useGetOrganizations();
 
     // Calculate overall loading state
-    const isLoading = isUserLoading || isAccountTypeLoading || isWorkspacesLoading || (isOrg && isOrgsLoading);
+    const isLoading = !isLoaded || isWorkspacesLoading || (hasOrg && isOrgsLoading);
 
-    // Check if ORG onboarding is complete
-    const prefs = user?.prefs || {};
-    const orgSetupComplete = prefs.orgSetupComplete === true;
-    const needsOrgOnboarding = isOrg && !orgSetupComplete;
-
-    // App is ready when user exists, all data is loaded, and onboarding is complete
-    const isAppReady = !isLoading && !!user && !isTimedOut && !needsOrgOnboarding;
-
-    // Redirect to onboarding if needed
-    useEffect(() => {
-        if (!isLoading && user && needsOrgOnboarding && !pathname?.startsWith("/onboarding")) {
-            router.push("/onboarding/organization");
-        }
-    }, [isLoading, user, needsOrgOnboarding, router, pathname]);
+    // App is ready when all data is loaded
+    const isAppReady = !isLoading && isAuthenticated && !isTimedOut;
 
     // Determine loading message
     const getLoadingMessage = useCallback(() => {
-        if (isUserLoading) return "Setting things up…";
-        if (isAccountTypeLoading) return "Loading your profile…";
+        if (!isLoaded) return "Setting things up…";
         if (isWorkspacesLoading) return "Loading your workspace…";
-        if (isOrgsLoading && isOrg) return "Loading organization…";
-        if (needsOrgOnboarding) return "Redirecting to setup…";
+        if (isOrgsLoading && hasOrg) return "Loading organization…";
         return "Almost ready…";
-    }, [isUserLoading, isAccountTypeLoading, isWorkspacesLoading, isOrgsLoading, isOrg, needsOrgOnboarding]);
+    }, [isLoaded, isWorkspacesLoading, isOrgsLoading, hasOrg]);
 
-    // Retry handler
     const retry = useCallback(() => {
         setIsTimedOut(false);
         setRetryCount((c) => c + 1);
-        refetchUser();
+        refreshLifecycle();
         refetchWorkspaces();
-        if (isOrg) {
+        if (hasOrg) {
             refetchOrgs();
         }
-    }, [refetchUser, refetchWorkspaces, refetchOrgs, isOrg]);
+    }, [refreshLifecycle, refetchWorkspaces, refetchOrgs, hasOrg]);
 
     // Timeout handling
     useEffect(() => {

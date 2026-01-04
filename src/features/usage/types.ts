@@ -23,6 +23,26 @@ export enum AlertType {
     WEBHOOK = "webhook",
 }
 
+/**
+ * UsageModule - Identifies which feature/module generated the usage
+ * 
+ * WHY: Allows analytics to show usage breakdown by module (Docs, GitHub, etc.)
+ * separate from the resource type (traffic, storage, compute).
+ */
+export enum UsageModule {
+    TRAFFIC = "traffic",     // General API traffic
+    STORAGE = "storage",     // File storage operations
+    DOCS = "docs",           // Project docs AI operations
+    GITHUB = "github",       // GitHub integration operations
+    AI = "ai",               // General AI operations
+    COMPUTE = "compute",     // Background compute jobs
+}
+
+/**
+ * OwnerType - Account type that generated the usage
+ */
+export type OwnerType = 'PERSONAL' | 'ORG';
+
 // ===============================
 // Database Document Types
 // ===============================
@@ -37,6 +57,17 @@ export type UsageEvent = Models.Document & {
     weightedUnits?: number;  // Units after applying job type weight
     // Idempotency - prevents duplicate events from retries
     idempotencyKey?: string; // Unique key per operation (e.g., workspaceId:operation:timestamp)
+    /**
+     * Module attribution - identifies which feature generated the usage
+     * WHY: Enables analytics to show usage by module (Docs, GitHub, etc.)
+     */
+    module?: UsageModule;
+    /**
+     * Owner fields - identifies account type and owner
+     * WHY: Supports both PERSONAL and ORG usage attribution
+     */
+    ownerType?: OwnerType;
+    ownerId?: string; // userId for PERSONAL, orgId for ORG
     /**
      * Billing entity fields for attribution
      * WHY: Enables billing to correct entity during PERSONAL→ORG conversion.
@@ -168,7 +199,16 @@ export type UsageSummary = {
     breakdown: {
         bySource: Record<UsageSource, number>;
         byResourceType: Record<ResourceType, number>;
+        byWorkspace: Record<string, {
+            [ResourceType.TRAFFIC]: number;
+            [ResourceType.STORAGE]: number;
+            [ResourceType.COMPUTE]: number;
+        }>;
     };
+    dailyUsage: Array<{
+        date: string;
+        [key: string]: number | string;
+    }>;
 };
 
 export type UsageChartDataPoint = {

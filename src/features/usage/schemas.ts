@@ -24,7 +24,8 @@ export const createUsageEventSchema = z.object({
 });
 
 export const getUsageEventsSchema = z.object({
-    workspaceId: z.string().min(1),
+    workspaceId: z.string().optional(),
+    organizationId: z.string().optional(),
     projectId: z.string().optional(),
     resourceType: resourceTypeSchema.optional(),
     source: usageSourceSchema.optional(),
@@ -32,25 +33,36 @@ export const getUsageEventsSchema = z.object({
     endDate: z.string().optional(),
     limit: z.coerce.number().min(1).max(1000).default(50),
     offset: z.coerce.number().min(0).default(0),
-});
+}).refine(
+    data => data.workspaceId || data.organizationId,
+    { message: "Either workspaceId or organizationId is required" }
+);
 
 export const exportUsageSchema = z.object({
-    workspaceId: z.string().min(1),
+    workspaceId: z.string().optional(),
+    organizationId: z.string().optional(),
     format: exportFormatSchema,
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     resourceType: resourceTypeSchema.optional(),
-});
+}).refine(
+    data => data.workspaceId || data.organizationId,
+    { message: "Either workspaceId or organizationId is required" }
+);
 
 // ===============================
 // Usage Aggregations Schemas
 // ===============================
 
 export const getUsageAggregationsSchema = z.object({
-    workspaceId: z.string().min(1),
+    workspaceId: z.string().optional(),
+    organizationId: z.string().optional(),
     startPeriod: z.string().regex(/^\d{4}-\d{2}$/).optional(),
     endPeriod: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-});
+}).refine(
+    data => data.workspaceId || data.organizationId,
+    { message: "Either workspaceId or organizationId is required" }
+);
 
 export const calculateAggregationSchema = z.object({
     workspaceId: z.string().min(1),
@@ -63,10 +75,14 @@ export const calculateAggregationSchema = z.object({
 // ===============================
 
 export const getUsageSummarySchema = z.object({
-    workspaceId: z.string().min(1),
+    workspaceId: z.string().optional(),
+    organizationId: z.string().optional(),
     period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
     billingEntityId: z.string().optional(),
-});
+}).refine(
+    data => data.workspaceId || data.organizationId,
+    { message: "Either workspaceId or organizationId is required" }
+);
 
 // ===============================
 // Usage Alerts Schemas
@@ -88,5 +104,23 @@ export const updateUsageAlertSchema = z.object({
 });
 
 export const getUsageAlertsSchema = z.object({
-    workspaceId: z.string().min(1),
-});
+    workspaceId: z.string().optional(),
+    organizationId: z.string().optional(),
+}).refine(
+    data => data.workspaceId || data.organizationId,
+    { message: "Either workspaceId or organizationId is required" }
+);
+
+// ===============================
+// Invoice History Schemas
+// ===============================
+
+export const getInvoicesSchema = z.object({
+    workspaceId: z.string().optional(),
+    organizationId: z.string().optional(),
+    limit: z.coerce.number().min(1).max(100).default(24),
+    offset: z.coerce.number().min(0).default(0),
+}).refine(
+    data => data.workspaceId || data.organizationId,
+    { message: "Either workspaceId or organizationId is required" }
+);

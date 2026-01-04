@@ -1,4 +1,4 @@
-import { ID, Query } from "node-appwrite";
+import { ID, Query, Models } from "node-appwrite";
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
@@ -36,7 +36,7 @@ const app = new Hono()
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Delete all time logs for this task first
+    // Delete related time logs
     try {
       const timeLogs = await databases.listDocuments(
         DATABASE_ID,
@@ -44,7 +44,6 @@ const app = new Hono()
         [Query.equal("taskId", taskId)]
       );
 
-      // Delete all time logs for this task
       for (const timeLog of timeLogs.documents) {
         await databases.deleteDocument(DATABASE_ID, TIME_LOGS_ID, timeLog.$id);
       }
@@ -113,10 +112,7 @@ const app = new Hono()
         query.push(Query.equal("dueDate", dueDate));
       }
 
-      // Don't filter by search on server side - we'll do it client side
-      // if (search) {
-      //   query.push(Query.contains("name", search));
-      // }
+      // Client-side search only
 
       if (priority) {
         query.push(Query.equal("priority", priority));
@@ -139,7 +135,7 @@ const app = new Hono()
 
       const projectIds = [...new Set(tasks.documents.map((task) => task.projectId).filter(Boolean))];
 
-      // Collect all assignee IDs - ensure we handle both array and non-array cases
+      // Normalize assignee IDs
       const allAssigneeIds = new Set<string>();
       tasks.documents.forEach((task) => {
         const ids = task.assigneeIds;
@@ -176,7 +172,7 @@ const app = new Hono()
             COMMENTS_ID,
             [
               Query.equal("taskId", taskIds),
-              Query.limit(5000), // Get enough to count all comments
+              Query.limit(5000), // Get enough comments
             ]
           );
 
@@ -246,7 +242,6 @@ const app = new Hono()
     async (c) => {
       const user = c.get("user");
       const databases = c.get("databases");
-      // Note: endDate is in schema but not in database - we extract it to avoid errors
       const { name, status, workspaceId, projectId, dueDate, assigneeIds, description, estimatedHours, priority, labels } =
         c.req.valid("json");
 
@@ -260,7 +255,7 @@ const app = new Hono()
         return c.json({ error: "Unauthorized" }, 401);
       }
 
-      // Check for an active sprint in this project to auto-assign
+      // Auto-assign to sprint
       const { SPRINTS_ID } = await import("@/config");
       const { SprintStatus } = await import("@/features/sprints/types");
 
@@ -301,7 +296,7 @@ const app = new Hono()
           ? highestPositionTask.documents[0].position + 1000
           : 1000;
 
-      // Get next key number for this project
+      // Generate task key
       const existingItems = await databases.listDocuments(
         DATABASE_ID,
         TASKS_ID,
@@ -343,10 +338,9 @@ const app = new Hono()
         }
       ) as Task;
 
-      // Send notifications asynchronously (non-blocking)
+      // Send async notifications
       const userName = user.name || user.email || "Someone";
 
-      // Notify assignees
       notifyTaskAssignees({
         databases,
         task,
@@ -377,7 +371,7 @@ const app = new Hono()
       const user = c.get("user");
       const databases = c.get("databases");
       // Note: endDate is in schema but not in database - we ignore it
-      const { name, status, projectId, dueDate, assigneeIds, description, estimatedHours, priority, labels, flagged } =
+      const { name, status, projectId, dueDate, assigneeIds, description, estimatedHours, priority, labels, flagged, storyPoints } =
         c.req.valid("json");
 
       const { taskId } = c.req.param();
@@ -400,8 +394,7 @@ const app = new Hono()
 
       const updateData: Record<string, unknown> = {};
 
-      // Only include fields that are provided
-      // Note: form sends 'name' but collection uses 'title'
+      // Build update payload
       if (name !== undefined) {
         updateData.title = name;
       }
@@ -410,17 +403,18 @@ const app = new Hono()
       if (dueDate !== undefined) updateData.dueDate = dueDate;
       if (description !== undefined) updateData.description = description;
       if (estimatedHours !== undefined) updateData.estimatedHours = estimatedHours;
+      if (storyPoints !== undefined) updateData.storyPoints = storyPoints;
       // Note: endDate column doesn't exist in workItems collection, so we skip it
       if (priority !== undefined) updateData.priority = priority;
       if (labels !== undefined) updateData.labels = labels;
       if (flagged !== undefined) updateData.flagged = flagged;
 
-      // Track if assignees changed for notification purposes
+      // Track assignee changes
       const oldAssigneeIds = existingTask.assigneeIds || [];
       const newAssigneeIds = assigneeIds || [];
       const assigneesChanged = assigneeIds !== undefined && (
         oldAssigneeIds.length !== newAssigneeIds.length ||
-        !oldAssigneeIds.every(id => newAssigneeIds.includes(id))
+        !oldAssigneeIds.every((id: string) => newAssigneeIds.includes(id))
       );
 
       // Handle assignees - always update if provided (even if empty array to clear assignees)
@@ -446,7 +440,7 @@ const app = new Hono()
       // Send notifications asynchronously (non-blocking)
       const userName = user.name || user.email || "Someone";
 
-      // Track changes for detailed notifications
+      // Track detailed changes
       const statusChanged = status !== undefined && existingTask.status !== status;
       const priorityChanged = priority !== undefined && existingTask.priority !== priority;
       const dueDateChanged = dueDate !== undefined && String(existingTask.dueDate) !== String(dueDate);
@@ -528,11 +522,19 @@ const app = new Hono()
         return c.json({ error: "Unauthorized" }, 401);
       }
 
-      const project = await databases.getDocument<Project>(
-        DATABASE_ID,
-        PROJECTS_ID,
-        task.projectId
-      );
+      // Fetch project safely
+      let project;
+      try {
+        project = await databases.getDocument<Project>(
+          DATABASE_ID,
+          PROJECTS_ID,
+          task.projectId
+        );
+      } catch (error) {
+        console.warn(`[TaskDetail] Failed to fetch project for task ${taskId}:`, error);
+        // Continue without project data
+        project = undefined;
+      }
 
       // Collect all assignee IDs
       const allAssigneeIds = new Set<string>();
@@ -541,35 +543,50 @@ const app = new Hono()
       }
 
       // Get all assignee members
-      const members = await databases.listDocuments(
-        DATABASE_ID,
-        MEMBERS_ID,
-        allAssigneeIds.size > 0 ? [Query.equal("$id", Array.from(allAssigneeIds))] : []
-      );
+      let members: Models.DocumentList<Models.Document> = { documents: [], total: 0 };
+      if (allAssigneeIds.size > 0) {
+        try {
+          members = await databases.listDocuments(
+            DATABASE_ID,
+            MEMBERS_ID,
+            [Query.equal("$id", Array.from(allAssigneeIds))]
+          ) as unknown as Models.DocumentList<Models.Document>;
+        } catch (error) {
+          console.warn(`[TaskDetail] Failed to fetch members for task ${taskId}:`, error);
+        }
+      }
 
       const assignees = await Promise.all(
-        members.documents.map(async (member) => {
-          const user = await users.get(member.userId);
-          const prefs = user.prefs as { profileImageUrl?: string | null } | undefined;
+        members.documents.map(async (member: Models.Document) => {
+          try {
+            const user = await users.get(member.userId);
+            const prefs = user.prefs as { profileImageUrl?: string | null } | undefined;
 
-          return {
-            ...member,
-            name: user.name || user.email,
-            email: user.email,
-            profileImageUrl: prefs?.profileImageUrl ?? null,
-          };
+            return {
+              ...member,
+              name: user.name || user.email,
+              email: user.email,
+              profileImageUrl: prefs?.profileImageUrl ?? null,
+            };
+          } catch (error) {
+            console.warn(`[TaskDetail] Failed to fetch user for member ${member.$id}:`, error);
+            return null;
+          }
         })
       );
+
+      // Filter out nulls
+      const validAssignees = assignees.filter((a): a is NonNullable<typeof a> => a !== null);
 
       // Get first assignee for backward compatibility
       const firstAssigneeId = task.assigneeIds?.[0];
       const assignee = firstAssigneeId
-        ? assignees.find((a) => a.$id === firstAssigneeId)
+        ? validAssignees.find((a) => a.$id === firstAssigneeId)
         : undefined;
 
       // Handle multiple assignees
       const taskAssignees = task.assigneeIds
-        ? assignees.filter((a) => task.assigneeIds!.includes(a.$id))
+        ? validAssignees.filter((a) => task.assigneeIds!.includes(a.$id))
         : [];
 
       return c.json({
@@ -581,7 +598,8 @@ const app = new Hono()
           assignees: taskAssignees, // New field for multiple assignees
         },
       });
-    } catch {
+    } catch (error) {
+      console.error(`[TaskDetail] Error fetching task ${taskId}:`, error);
       return c.json({ error: "Task not found" }, 404);
     }
   })
@@ -667,12 +685,12 @@ const app = new Hono()
 
           const updatedTask = await databases.updateDocument<Task>(DATABASE_ID, TASKS_ID, $id, updateData);
 
-          // Return both old and new task for notification metadata
+          // Notify status changes
           return { task: updatedTask, oldStatus: existingTask.status, statusChanged: status !== undefined && existingTask.status !== status };
         })
       );
 
-      // Send notifications for bulk updates (non-blocking)
+      // Send bulk notifications
       const userName = user.name || user.email || "Someone";
 
       updatedTasks.forEach(({ task, oldStatus, statusChanged }) => {

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { ID, Query } from "node-appwrite";
+import { ID, Query, Databases } from "node-appwrite";
 import { zValidator } from "@hono/zod-validator";
 
 import {
@@ -11,6 +11,8 @@ import {
     USAGE_RATE_TRAFFIC_GB,
     USAGE_RATE_STORAGE_GB_MONTH,
     USAGE_RATE_COMPUTE_UNIT,
+    ORGANIZATION_MEMBERS_ID,
+    WORKSPACES_ID,
 } from "@/config";
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { getMember } from "@/features/members/utils";
@@ -26,6 +28,7 @@ import {
     createUsageAlertSchema,
     updateUsageAlertSchema,
     getUsageAlertsSchema,
+    getInvoicesSchema,
 } from "../schemas";
 import {
     UsageEvent,
@@ -37,14 +40,77 @@ import {
     UsageSource,
 } from "../types";
 
-// Helper to check admin access
+// Helper to check workspace-level admin access
 async function checkAdminAccess(
     databases: Parameters<typeof getMember>[0]["databases"],
     workspaceId: string,
     userId: string
 ): Promise<boolean> {
     const member = await getMember({ databases, workspaceId, userId });
-    return member?.role === MemberRole.ADMIN;
+    return member?.role === MemberRole.ADMIN || member?.role === MemberRole.OWNER;
+}
+
+/**
+ * Helper to check organization-level OWNER/ADMIN access
+ * 
+ * WHY: For org-level usage dashboard, we need org-level permission check,
+ * not workspace-level. Only org OWNER or ADMIN can view org-wide usage.
+ */
+async function checkOrgAdminAccess(
+    databases: Databases,
+    organizationId: string,
+    userId: string
+): Promise<boolean> {
+    try {
+        const members = await databases.listDocuments(
+            DATABASE_ID,
+            ORGANIZATION_MEMBERS_ID,
+            [
+                Query.equal("organizationId", organizationId),
+                Query.equal("userId", userId),
+            ]
+        );
+
+        if (members.total === 0) {
+            return false;
+        }
+
+        const member = members.documents[0];
+        const hasAccess = member.role === "OWNER" || member.role === "ADMIN";
+        return hasAccess;
+    } catch (error) {
+        console.error("[Usage] checkOrgAdminAccess error:", error);
+        return false;
+    }
+}
+
+/**
+ * Helper to get all workspace IDs belonging to an organization
+ * 
+ * WHY: For org-level usage queries, we need to aggregate usage across all
+ * workspaces in the organization. This fetches all workspace IDs to use
+ * in Query.equal("workspaceId", [...]) filters.
+ */
+async function getOrgWorkspaceIds(
+    databases: Databases,
+    organizationId: string
+): Promise<string[]> {
+    try {
+        const workspaces = await databases.listDocuments(
+            DATABASE_ID,
+            WORKSPACES_ID,
+            [
+                Query.equal("organizationId", organizationId),
+                Query.limit(100), // Max workspaces per org
+            ]
+        );
+
+        const workspaceIds = workspaces.documents.map((ws: { $id: string }) => ws.$id);
+        return workspaceIds;
+    } catch (error) {
+        console.error("[Usage] getOrgWorkspaceIds error:", error);
+        return [];
+    }
 }
 
 /**
@@ -79,7 +145,7 @@ async function checkAdminAccess(
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getBillingEntityForEvent(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    databases: any,
+    databases: Databases,
     workspaceId: string,
     eventTimestamp: string
 ): Promise<{ entityId: string; entityType: "user" | "organization" }> {
@@ -180,19 +246,39 @@ const app = new Hono()
             const databases = c.get("databases");
             const params = c.req.valid("query");
 
-            // Check admin access
-            const isAdmin = await checkAdminAccess(databases, params.workspaceId, user.$id);
-            if (!isAdmin) {
-                return c.json({ error: "Admin access required" }, 403);
-            }
 
-            // Build query
+            // Build base query
             const queries = [
-                Query.equal("workspaceId", params.workspaceId),
                 Query.orderDesc("timestamp"),
                 Query.limit(params.limit),
                 Query.offset(params.offset),
             ];
+
+            // Handle org-level vs workspace-level query
+            if (params.organizationId) {
+                // Organization-level: check org admin access
+                const isOrgAdmin = await checkOrgAdminAccess(databases, params.organizationId, user.$id);
+                if (!isOrgAdmin) {
+                    return c.json({ error: "Organization admin access required" }, 403);
+                }
+                // Get all workspace IDs for this organization
+                const orgWorkspaceIds = await getOrgWorkspaceIds(databases, params.organizationId);
+                if (orgWorkspaceIds.length === 0) {
+                    // No workspaces in org - return empty data
+                    return c.json({ data: { documents: [], total: 0 } });
+                }
+                // Query by all org workspace IDs
+                queries.push(Query.equal("workspaceId", orgWorkspaceIds));
+            } else if (params.workspaceId) {
+                // Workspace-level: check workspace admin access
+                const isAdmin = await checkAdminAccess(databases, params.workspaceId, user.$id);
+                if (!isAdmin) {
+                    return c.json({ error: "Admin access required" }, 403);
+                }
+                queries.push(Query.equal("workspaceId", params.workspaceId));
+            } else {
+                return c.json({ error: "Either workspaceId or organizationId is required" }, 400);
+            }
 
             if (params.projectId) {
                 queries.push(Query.equal("projectId", params.projectId));
@@ -265,18 +351,32 @@ const app = new Hono()
             const databases = c.get("databases");
             const params = c.req.valid("query");
 
-            // Check admin access
-            const isAdmin = await checkAdminAccess(databases, params.workspaceId, user.$id);
-            if (!isAdmin) {
-                return c.json({ error: "Admin access required" }, 403);
-            }
-
-            // Build query for export (fetch all matching events)
+            // Build base query for export (fetch all matching events)
             const queries = [
-                Query.equal("workspaceId", params.workspaceId),
                 Query.orderDesc("timestamp"),
                 Query.limit(10000), // Max export limit
             ];
+
+            // Handle org-level vs workspace-level export
+            if (params.organizationId) {
+                const isOrgAdmin = await checkOrgAdminAccess(databases, params.organizationId, user.$id);
+                if (!isOrgAdmin) {
+                    return c.json({ error: "Organization admin access required" }, 403);
+                }
+                const orgWorkspaceIds = await getOrgWorkspaceIds(databases, params.organizationId);
+                if (orgWorkspaceIds.length === 0) {
+                    return c.json({ data: [] });
+                }
+                queries.push(Query.equal("workspaceId", orgWorkspaceIds));
+            } else if (params.workspaceId) {
+                const isAdmin = await checkAdminAccess(databases, params.workspaceId, user.$id);
+                if (!isAdmin) {
+                    return c.json({ error: "Admin access required" }, 403);
+                }
+                queries.push(Query.equal("workspaceId", params.workspaceId));
+            } else {
+                return c.json({ error: "Either workspaceId or organizationId is required" }, 400);
+            }
 
             if (params.resourceType) {
                 queries.push(Query.equal("resourceType", params.resourceType));
@@ -344,13 +444,7 @@ const app = new Hono()
         async (c) => {
             const user = c.get("user");
             const databases = c.get("databases");
-            const { workspaceId, period, billingEntityId } = c.req.valid("query");
-
-            // Check admin access
-            const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
-            if (!isAdmin) {
-                return c.json({ error: "Admin access required" }, 403);
-            }
+            const { workspaceId, organizationId, period } = c.req.valid("query");
 
             // Default to current month
             const targetPeriod = period || new Date().toISOString().slice(0, 7);
@@ -359,21 +453,49 @@ const app = new Hono()
             nextMonth.setMonth(nextMonth.getMonth() + 1);
             const endOfMonth = nextMonth.toISOString();
 
-            // Build query with billing entity filter if provided
+            // Build base query
             const queries = [
-                Query.equal("workspaceId", workspaceId),
                 Query.greaterThanEqual("timestamp", startOfMonth),
                 Query.lessThan("timestamp", endOfMonth),
                 Query.limit(10000),
             ];
 
-            // CRITICAL: Filter by billing entity to separate org/user billing
-            // If billingEntityId is provided, only get events for that entity
-            if (billingEntityId) {
-                queries.push(Query.equal("billingEntityId", billingEntityId));
+            // Handle org-level vs workspace-level query
+            if (organizationId) {
+                const isOrgAdmin = await checkOrgAdminAccess(databases, organizationId, user.$id);
+                if (!isOrgAdmin) {
+                    return c.json({ error: "Organization admin access required" }, 403);
+                }
+                // Get all workspace IDs for this organization
+                const orgWorkspaceIds = await getOrgWorkspaceIds(databases, organizationId);
+                if (orgWorkspaceIds.length === 0) {
+                    // No workspaces - return empty summary
+                    return c.json({
+                        data: {
+                            period: targetPeriod,
+                            trafficTotalBytes: 0,
+                            trafficTotalGB: 0,
+                            storageAvgBytes: 0,
+                            storageAvgGB: 0,
+                            computeTotalUnits: 0,
+                            estimatedCost: { traffic: 0, storage: 0, compute: 0, total: 0 },
+                            eventCount: 0,
+                            breakdown: { bySource: {}, byResourceType: {} },
+                        }
+                    });
+                }
+                queries.push(Query.equal("workspaceId", orgWorkspaceIds));
+            } else if (workspaceId) {
+                const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
+                if (!isAdmin) {
+                    return c.json({ error: "Admin access required" }, 403);
+                }
+                queries.push(Query.equal("workspaceId", workspaceId));
+            } else {
+                return c.json({ error: "Either workspaceId or organizationId is required" }, 400);
             }
 
-            // Fetch events for the period (filtered by billing entity if specified)
+            // Fetch events for the period
             const events = await databases.listDocuments<UsageEvent>(
                 DATABASE_ID,
                 USAGE_EVENTS_ID,
@@ -395,11 +517,47 @@ const app = new Hono()
                 storage: 0,
                 compute: 0,
             };
+            const byWorkspace: Record<string, { traffic: number, storage: number, compute: number }> = {};
+            const dailyUsageMap: Record<string, Record<string, number | string>> = {};
 
             for (const event of events.documents) {
+                const date = event.timestamp.split("T")[0];
+                if (!dailyUsageMap[date]) {
+                    dailyUsageMap[date] = { date, docs: 0, github: 0, ai: 0, traffic: 0, storage: 0, compute: 0 };
+                }
+
+                // Extract moduleName for daily breakdown
+                let moduleName = event.resourceType as string;
+                if (event.metadata) {
+                    try {
+                        const meta = typeof event.metadata === 'string' ? JSON.parse(event.metadata) : event.metadata;
+                        if (meta.module) moduleName = meta.module.toLowerCase();
+                    } catch { /* ignore */ }
+                }
+
                 bySource[event.source] = (bySource[event.source] || 0) + event.units;
                 byResourceType[event.resourceType] =
                     (byResourceType[event.resourceType] || 0) + event.units;
+
+                const units = event.resourceType === ResourceType.COMPUTE
+                    ? (event.weightedUnits || event.units)
+                    : event.units;
+
+                // Workspace-level breakdown
+                if (event.workspaceId) {
+                    if (!byWorkspace[event.workspaceId]) {
+                        byWorkspace[event.workspaceId] = { traffic: 0, storage: 0, compute: 0 };
+                    }
+                    byWorkspace[event.workspaceId][event.resourceType as keyof typeof byWorkspace[string]] += units;
+                }
+
+                // Add to daily usage map
+                if (dailyUsageMap[date][moduleName] !== undefined) {
+                    dailyUsageMap[date][moduleName] = (dailyUsageMap[date][moduleName] as number) + units;
+                } else {
+                    // Fallback if module is unexpected
+                    dailyUsageMap[date][moduleName] = units;
+                }
 
                 switch (event.resourceType) {
                     case ResourceType.TRAFFIC:
@@ -434,7 +592,9 @@ const app = new Hono()
                 breakdown: {
                     bySource: bySource as Record<UsageSource, number>,
                     byResourceType: byResourceType as Record<ResourceType, number>,
+                    byWorkspace: byWorkspace as Record<string, { [ResourceType.TRAFFIC]: number, [ResourceType.STORAGE]: number, [ResourceType.COMPUTE]: number }>,
                 },
+                dailyUsage: Object.values(dailyUsageMap).sort((a, b) => (a.date as string).localeCompare(b.date as string)) as { date: string;[key: string]: number | string }[],
             };
 
             return c.json({ data: summary });
@@ -453,19 +613,34 @@ const app = new Hono()
         async (c) => {
             const user = c.get("user");
             const databases = c.get("databases");
-            const { workspaceId, startPeriod, endPeriod } = c.req.valid("query");
+            const { workspaceId, organizationId, startPeriod, endPeriod } = c.req.valid("query");
 
-            // Check admin access
-            const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
-            if (!isAdmin) {
-                return c.json({ error: "Admin access required" }, 403);
-            }
-
+            // Build base query
             const queries = [
-                Query.equal("workspaceId", workspaceId),
                 Query.orderDesc("period"),
                 Query.limit(24), // Last 2 years
             ];
+
+            // Handle org-level vs workspace-level query
+            if (organizationId) {
+                const isOrgAdmin = await checkOrgAdminAccess(databases, organizationId, user.$id);
+                if (!isOrgAdmin) {
+                    return c.json({ error: "Organization admin access required" }, 403);
+                }
+                const orgWorkspaceIds = await getOrgWorkspaceIds(databases, organizationId);
+                if (orgWorkspaceIds.length === 0) {
+                    return c.json({ data: { documents: [], total: 0 } });
+                }
+                queries.push(Query.equal("workspaceId", orgWorkspaceIds));
+            } else if (workspaceId) {
+                const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
+                if (!isAdmin) {
+                    return c.json({ error: "Admin access required" }, 403);
+                }
+                queries.push(Query.equal("workspaceId", workspaceId));
+            } else {
+                return c.json({ error: "Either workspaceId or organizationId is required" }, 400);
+            }
 
             if (startPeriod) {
                 queries.push(Query.greaterThanEqual("period", startPeriod));
@@ -620,21 +795,38 @@ const app = new Hono()
         async (c) => {
             const user = c.get("user");
             const databases = c.get("databases");
-            const { workspaceId } = c.req.valid("query");
+            const { workspaceId, organizationId } = c.req.valid("query");
 
-            // Check admin access
-            const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
-            if (!isAdmin) {
-                return c.json({ error: "Admin access required" }, 403);
+            // Build base query
+            const queries = [
+                Query.orderDesc("$createdAt"),
+            ];
+
+            // Handle org-level vs workspace-level query
+            if (organizationId) {
+                const isOrgAdmin = await checkOrgAdminAccess(databases, organizationId, user.$id);
+                if (!isOrgAdmin) {
+                    return c.json({ error: "Organization admin access required" }, 403);
+                }
+                const orgWorkspaceIds = await getOrgWorkspaceIds(databases, organizationId);
+                if (orgWorkspaceIds.length === 0) {
+                    return c.json({ data: { documents: [], total: 0 } });
+                }
+                queries.push(Query.equal("workspaceId", orgWorkspaceIds));
+            } else if (workspaceId) {
+                const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
+                if (!isAdmin) {
+                    return c.json({ error: "Admin access required" }, 403);
+                }
+                queries.push(Query.equal("workspaceId", workspaceId));
+            } else {
+                return c.json({ error: "Either workspaceId or organizationId is required" }, 400);
             }
 
             const alerts = await databases.listDocuments<UsageAlert>(
                 DATABASE_ID,
                 USAGE_ALERTS_ID,
-                [
-                    Query.equal("workspaceId", workspaceId),
-                    Query.orderDesc("$createdAt"),
-                ]
+                queries
             );
 
             return c.json({ data: alerts });
@@ -742,34 +934,57 @@ const app = new Hono()
     // Once an invoice is generated, the aggregation becomes locked
     // ===============================
 
-    // GET /usage/invoices - List invoices for a workspace
-    .get("/invoices", sessionMiddleware, async (c) => {
-        const user = c.get("user");
-        const databases = c.get("databases");
-        const workspaceId = c.req.query("workspaceId");
+    // GET /usage/invoices - List invoices (paginated)
+    .get(
+        "/invoices",
+        sessionMiddleware,
+        zValidator("query", getInvoicesSchema),
+        async (c) => {
+            const user = c.get("user");
+            const databases = c.get("databases");
+            const { workspaceId, organizationId, limit, offset } = c.req.valid("query");
 
-        if (!workspaceId) {
-            return c.json({ error: "workspaceId is required" }, 400);
-        }
-
-        // Check admin access
-        const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
-        if (!isAdmin) {
-            return c.json({ error: "Admin access required" }, 403);
-        }
-
-        const invoices = await databases.listDocuments<Invoice>(
-            DATABASE_ID,
-            INVOICES_ID,
-            [
-                Query.equal("workspaceId", workspaceId),
+            // Build base query
+            const queries = [
                 Query.orderDesc("createdAt"),
-                Query.limit(24), // Last 2 years
-            ]
-        );
+                Query.limit(limit),
+                Query.offset(offset),
+            ];
 
-        return c.json({ data: invoices });
-    })
+            // Handle org-level vs workspace-level query
+            if (organizationId) {
+                // Check org admin access
+                const isOrgAdmin = await checkOrgAdminAccess(databases, organizationId, user.$id);
+                if (!isOrgAdmin) {
+                    return c.json({ error: "Organization admin access required" }, 403);
+                }
+
+                // Get all workspace IDs for this organization
+                const orgWorkspaceIds = await getOrgWorkspaceIds(databases, organizationId);
+                if (orgWorkspaceIds.length === 0) {
+                    return c.json({ data: { documents: [], total: 0 } });
+                }
+
+                // Query by all org workspace IDs since organizationId might not be an attribute in schema
+                queries.push(Query.equal("workspaceId", orgWorkspaceIds));
+            } else if (workspaceId) {
+                // Check workspace admin access
+                const isAdmin = await checkAdminAccess(databases, workspaceId, user.$id);
+                if (!isAdmin) {
+                    return c.json({ error: "Admin access required" }, 403);
+                }
+                queries.push(Query.equal("workspaceId", workspaceId));
+            }
+
+            const invoices = await databases.listDocuments<Invoice>(
+                DATABASE_ID,
+                INVOICES_ID,
+                queries
+            );
+
+            return c.json({ data: invoices });
+        }
+    )
 
     // POST /usage/invoices/generate - Generate invoice from aggregation
     // WHY: This creates an immutable billing snapshot and locks the period

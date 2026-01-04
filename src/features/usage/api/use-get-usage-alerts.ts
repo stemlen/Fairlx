@@ -2,16 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { client } from "@/lib/rpc";
 
 interface UseGetUsageAlertsParams {
-    workspaceId: string;
+    workspaceId?: string;
+    organizationId?: string;
 }
 
 export const useGetUsageAlerts = (params: UseGetUsageAlertsParams) => {
     return useQuery({
-        queryKey: ["usage-alerts", params.workspaceId],
+        queryKey: ["usage-alerts", params],
         queryFn: async () => {
             const response = await client.api.usage.alerts.$get({
                 query: {
                     workspaceId: params.workspaceId,
+                    organizationId: params.organizationId,
                 },
             });
 
@@ -21,6 +23,6 @@ export const useGetUsageAlerts = (params: UseGetUsageAlertsParams) => {
 
             return await response.json();
         },
-        enabled: !!params.workspaceId,
+        enabled: !!(params.workspaceId || params.organizationId),
     });
 };

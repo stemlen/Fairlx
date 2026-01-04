@@ -125,7 +125,7 @@ const app = new Hono()
         return c.json({ error: "Unauthorized" }, 401);
       }
 
-      // Get all work items for this sprint
+      // Get work items for sprint
       const workItems = await databases.listDocuments<WorkItem>(
         DATABASE_ID,
         WORK_ITEMS_ID,
@@ -135,8 +135,7 @@ const app = new Hono()
         ]
       );
 
-      // Populate assignees for work items
-      // First collect all unique assignee IDs (these are member document IDs)
+      // Collect unique assignee IDs
       const allAssigneeIds = new Set<string>();
       workItems.documents.forEach((workItem) => {
         if (workItem.assigneeIds && Array.isArray(workItem.assigneeIds)) {
@@ -368,10 +367,7 @@ const app = new Hono()
         }
       }
 
-      // General Permission Check
-      // If we authorized a status change above, we still need to check if *other* fields are being changed that require EDIT permission.
-      // Or, we can simplify: if they passed the Status check and ONLY status is changing, they are good.
-      // If they are changing other things (name, dates), they need EDIT_SPRINTS.
+      // Verify permissions: allow status changes with specific rights, require EDIT for everything else.
 
       const isStatusChangeOnly = Object.keys(updates).length === 1 && updates.status;
       const hasEditPermission = await can(databases, sprint.workspaceId, user.$id, PERMISSIONS.SPRINT_UPDATE);
@@ -380,14 +376,8 @@ const app = new Hono()
         return c.json({ error: "Forbidden: Needs Edit Sprints permission" }, 403);
       }
 
-      // If it IS a status change only, we already checked the specific permissions above (SPRINT_START / SPRINT_COMPLETE).
-      // But we need to make sure we didn't skip verification.
+      // Ensure unguarded status transitions also require EDIT permission.
       if (isStatusChangeOnly) {
-        // The checks above (lines 348-358) handle START/COMPLETE logic.
-        // If we are here, and it was a status change, and we didn't return 403 above, we are safe.
-        // BUT, what if status is changing to something else? (e.g. back to PLANNED?)
-        // For now, let's assume those 2 are the main ones.
-        // If the status transition wasn't guarded above, we should enforce EDIT_SPRINTS.
         const isGuardedTransition =
           (updates.status === SprintStatus.ACTIVE && sprint.status !== SprintStatus.ACTIVE) ||
           (updates.status === SprintStatus.COMPLETED && sprint.status !== SprintStatus.COMPLETED);
@@ -420,6 +410,104 @@ const app = new Hono()
         units: getComputeUnits(isComplete ? 'sprint_complete' : 'task_update'),
         jobType: isComplete ? 'sprint_complete' : 'sprint_update',
         metadata: { sprintId, updatedFields: Object.keys(updates) },
+      });
+
+      return c.json({ data: updatedSprint });
+    }
+  )
+  // Complete a sprint
+  .post(
+    "/:sprintId/complete",
+    sessionMiddleware,
+    zValidator(
+      "json",
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string(),
+        unfinishedDetails: z.object({
+          moveTo: z.union([z.literal("backlog"), z.object({ sprintId: z.string() })]),
+        }).optional(),
+      })
+    ),
+    async (c) => {
+      const databases = c.get("databases");
+      const user = c.get("user");
+      const { sprintId } = c.req.param();
+      const { workspaceId, projectId, unfinishedDetails } = c.req.valid("json");
+
+
+
+      const member = await getMember({
+        databases,
+        workspaceId,
+        userId: user.$id,
+      });
+
+      if (!member) {
+        return c.json({ error: "Unauthorized" }, 401);
+      }
+
+      if (!(await can(databases, workspaceId, user.$id, PERMISSIONS.SPRINT_COMPLETE))) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
+
+      // 1. Fetch sprint items
+      const workItems = await databases.listDocuments<WorkItem>(
+        DATABASE_ID,
+        WORK_ITEMS_ID,
+        [
+          Query.equal("sprintId", sprintId),
+          Query.limit(100), // Adjust limit if needed
+        ]
+      );
+
+      const allItems = workItems.documents;
+      const unfinishedItems = allItems.filter(item => item.status !== "DONE");
+
+      // 2. Move unfinished items
+      if (unfinishedDetails && unfinishedItems.length > 0) {
+        const destinationSprintId = unfinishedDetails.moveTo === "backlog"
+          ? null
+          : unfinishedDetails.moveTo.sprintId;
+
+        await Promise.all(
+          unfinishedItems.map(item =>
+            databases.updateDocument(
+              DATABASE_ID,
+              WORK_ITEMS_ID,
+              item.$id,
+              {
+                sprintId: destinationSprintId,
+                lastModifiedBy: user.$id
+              }
+            )
+          )
+        );
+      }
+
+      // 3. Mark sprint complete
+      const updatedSprint = await databases.updateDocument<Sprint>(
+        DATABASE_ID,
+        SPRINTS_ID,
+        sprintId,
+        {
+          status: SprintStatus.COMPLETED,
+          lastModifiedBy: user.$id
+        }
+      );
+
+      // Log usage
+      logComputeUsage({
+        databases,
+        workspaceId,
+        projectId,
+        units: getComputeUnits('sprint_complete'),
+        jobType: 'sprint_complete',
+        metadata: {
+          sprintId,
+          movedItemsCount: unfinishedItems.length,
+          destination: typeof unfinishedDetails?.moveTo === 'object' ? unfinishedDetails.moveTo.sprintId : 'backlog'
+        },
       });
 
       return c.json({ data: updatedSprint });

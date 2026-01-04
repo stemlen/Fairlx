@@ -26,6 +26,7 @@ import { PERMISSIONS } from "@/lib/permissions";
 
 interface SprintOptionsMenuProps {
   sprint: PopulatedSprint;
+  hasActiveSprint?: boolean;
 }
 
 const statusConfig = {
@@ -49,6 +50,7 @@ const statusConfig = {
 
 export const SprintOptionsMenu = ({
   sprint,
+  hasActiveSprint,
 }: SprintOptionsMenuProps) => {
   const [DeleteDialog, confirmDelete] = useConfirm(
     "Delete Sprint",
@@ -106,8 +108,9 @@ export const SprintOptionsMenu = ({
               <DropdownMenuItem
                 key={status}
                 onClick={() => handleStatusChange(status)}
-                disabled={isUpdating}
+                disabled={isUpdating || (status === SprintStatus.ACTIVE && hasActiveSprint && sprint.status !== SprintStatus.ACTIVE)}
                 className="text-xs cursor-pointer"
+                title={status === SprintStatus.ACTIVE && hasActiveSprint && sprint.status !== SprintStatus.ACTIVE ? "Another sprint is already active" : undefined}
               >
                 <Circle className={cn("size-2.5 mr-2", statusConfig[status].color)} />
                 <span>{statusConfig[status].label}</span>

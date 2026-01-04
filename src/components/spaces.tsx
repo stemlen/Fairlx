@@ -16,12 +16,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAccountLifecycle } from "@/components/account-lifecycle-provider";
 
 export const Spaces = () => {
   const router = useRouter();
   const params = useParams();
+  const { lifecycleState: state } = useAccountLifecycle();
+  const { activeWorkspaceId } = state;
   const { open } = useCreateSpaceModal();
-  const workspaceId = useWorkspaceId();
+  const urlWorkspaceId = useWorkspaceId();
+
+  // Use URL workspaceId if available, fallback to global active workspaceId
+  const workspaceId = (urlWorkspaceId || activeWorkspaceId || "") as string;
+
   const { data } = useGetSpaces({ workspaceId });
   const { isAdmin } = useCurrentMember({ workspaceId });
   const [isExpanded, setIsExpanded] = useState(true);
@@ -49,7 +56,7 @@ export const Spaces = () => {
   return (
     <div className="flex flex-col px-3 py-4 border-t border-neutral-200">
       <div className="flex items-center justify-between pb-2">
-        <button 
+        <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex items-center gap-1 text-[13px] tracking-normal font-medium pl-2 text-primary hover:text-primary/80"
         >
@@ -156,7 +163,7 @@ const SpaceItem = ({ space, childSpaces, selectedSpaceId, onSelect, level }: Spa
           </button>
         )}
         {!hasChildren && <div className="w-4" />}
-        
+
         <div
           className="size-3 rounded-sm flex-shrink-0"
           style={{ backgroundColor: space.color || "#6366f1" }}

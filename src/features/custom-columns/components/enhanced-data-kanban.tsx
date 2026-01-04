@@ -7,7 +7,6 @@ import {
   Draggable,
   type DropResult,
 } from "@hello-pangea/dnd";
-import { PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/hooks/use-confirm";
@@ -72,7 +71,7 @@ export const EnhancedDataKanban = ({
   });
 
 
-  const { open: openCreateTask } = useCreateTaskModal();
+  useCreateTaskModal();
   const { getEnabledColumns } = useDefaultColumns(workspaceId, projectId);
   const { mutate: updateColumnOrder } = useUpdateColumnOrder();
 
@@ -499,7 +498,7 @@ export const EnhancedDataKanban = ({
                         >
                           <div
                             {...provided.dragHandleProps}
-                            className={`${!selectionMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                            className={`${!selectionMode ? '' : ''}`}
                           >
                             {column.type === "default" ? (
                               <KanbanColumnHeader
@@ -544,7 +543,6 @@ export const EnhancedDataKanban = ({
                                     {(provided) => (
                                       <div
                                         {...provided.draggableProps}
-                                        {...provided.dragHandleProps}
                                         ref={provided.innerRef}
                                       >
                                         <KanbanCard
@@ -554,23 +552,14 @@ export const EnhancedDataKanban = ({
                                           showSelection={selectionMode}
                                           canEdit={canEditTasks}
                                           canDelete={canDeleteTasks}
+                                          dragHandleProps={provided.dragHandleProps}
                                         />
                                       </div>
                                     )}
                                   </Draggable>
                                 ))}
                                 {provided.placeholder}
-                                {/* Add Task Button */}
-                                {canCreateTasks && (
-                                  <Button
-                                    onClick={openCreateTask}
-                                    variant="ghost"
-                                    className="w-full text-xs bg-white border border-gray-200 shadow-sm justify-start text-gray-500  mt-2"
-                                  >
-                                    <PlusIcon className="h-4 w-4 " />
-                                    Add Work Item
-                                  </Button>
-                                )}
+                                {/* Add Task Button Removed for View-Only Kanban */}
                               </div>
                             )}
                           </Droppable>

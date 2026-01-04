@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { Toaster } from "sonner";
 import { QueryProvider } from "@/components/query-provider";
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
+import { AccountProvider } from "@/components/account-provider";
+import { resolveAccountState } from "@/features/auth/server/actions";
 
 import "./globals.css";
 
@@ -19,18 +21,22 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialState = await resolveAccountState();
+
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={cn(inter.className, "antialiased min-h-screen")}>
         <NuqsAdapter>
           <QueryProvider>
             <Toaster />
-            {children}
+            <AccountProvider initialState={initialState}>
+              {children}
+            </AccountProvider>
           </QueryProvider>
         </NuqsAdapter>
       </body>

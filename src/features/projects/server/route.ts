@@ -15,7 +15,7 @@ import { Project } from "../types";
 import { MemberRole } from "@/features/members/types";
 import { TeamMember } from "@/features/teams/types";
 
-// Helper to parse JSON strings from Appwrite
+// Parse Appwrite JSON
 const transformProject = (project: Models.Document): Project => {
   const raw = project as unknown as Record<string, unknown>;
 
@@ -84,7 +84,7 @@ const app = new Hono()
           deadline: deadline || undefined,
           imageUrl: uploadedImageUrl,
           workspaceId,
-          // Handle explicit null, empty string, and the string "null" as null
+          // Normalize spaceId
           spaceId: (spaceId === null || spaceId === "" || spaceId === "null") ? null : spaceId,
         }
       );
@@ -132,7 +132,7 @@ const app = new Hono()
         });
       }
 
-      // Get user's team memberships
+      // Filter projects by team
       const userTeamMemberships = await databases.listDocuments<TeamMember>(
         DATABASE_ID,
         TEAM_MEMBERS_ID,
@@ -142,8 +142,6 @@ const app = new Hono()
       const userTeamIds = userTeamMemberships.documents.map(
         (membership) => membership.teamId
       );
-
-      // Filter projects based on team assignments
       const filteredProjects = allProjects.documents.filter((project) => {
         // If no teams assigned, project is visible to all
         if (!project.assignedTeamIds || project.assignedTeamIds.length === 0) {
@@ -251,7 +249,7 @@ const app = new Hono()
         lastModifiedBy: user.$id,
       };
 
-      // Only update description if it was provided (even if empty string to clear it)
+      // Update fields if provided
       if (description !== undefined) {
         updateData.description = description || null;
       }
@@ -261,19 +259,16 @@ const app = new Hono()
         updateData.deadline = deadline || null;
       }
 
-      // Only update spaceId if it was provided (null to remove from space)
+      // Normalise space/workflow IDs
       if (spaceId !== undefined) {
-        // Handle explicit null, empty string, and the string "null" as null
         updateData.spaceId = (spaceId === null || spaceId === "" || spaceId === "null") ? null : spaceId;
       }
 
-      // Only update workflowId if it was provided (null to disconnect from workflow)
       if (workflowId !== undefined) {
-        // Handle explicit null, empty string, and the string "null" as null
         updateData.workflowId = (workflowId === null || workflowId === "" || workflowId === "null") ? null : workflowId;
       }
 
-      // Update custom definitions if provided
+      // Update custom definitions
       if (customWorkItemTypes !== undefined) {
         updateData.customWorkItemTypes = JSON.stringify(customWorkItemTypes);
       }
@@ -316,7 +311,7 @@ const app = new Hono()
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    // Delete all related data when project is deleted
+    // Cascade delete related data
     try {
       // Get all tasks for this project
       const tasks = await databases.listDocuments(
@@ -530,7 +525,7 @@ const app = new Hono()
       const databases = c.get("databases");
       const { projectId, teamId } = c.req.param();
 
-      // Get the project
+      // Get project
       const project = await databases.getDocument<Project>(
         DATABASE_ID,
         PROJECTS_ID,
@@ -541,7 +536,7 @@ const app = new Hono()
         return c.json({ error: "Project not found" }, 404);
       }
 
-      // Check if user is workspace admin
+      // Verify admin access
       const member = await getMember({
         databases,
         workspaceId: project.workspaceId,
@@ -552,7 +547,7 @@ const app = new Hono()
         return c.json({ error: "Only workspace admins can assign projects to teams" }, 403);
       }
 
-      // Add team to assignedTeamIds array
+      // Assign team
       const currentTeamIds = project.assignedTeamIds || [];
       if (!currentTeamIds.includes(teamId)) {
         currentTeamIds.push(teamId);
@@ -600,7 +595,7 @@ const app = new Hono()
         return c.json({ error: "Only workspace admins can unassign projects from teams" }, 403);
       }
 
-      // Remove team from assignedTeamIds array
+      // Unassign team
       const currentTeamIds = project.assignedTeamIds || [];
       const updatedTeamIds = currentTeamIds.filter((id) => id !== teamId);
 
@@ -656,16 +651,13 @@ const app = new Hono()
         return c.json({ error: "Source project not found" }, 404);
       }
 
-      // Check access to source project (must be in same workspace for now)
+      // Verify workspace match
       if (sourceProject.workspaceId !== targetProject.workspaceId) {
-        // Could expand to check membership in source workspace if cross-workspace copy allowed
         return c.json({ error: "Cannot copy from project in different workspace" }, 400);
       }
 
-      // Update target project with settings from source project
+      // Copy settings
       const updateData: Record<string, unknown> = {};
-
-      // Apply transformProject to sourceProject to ensure custom fields are parsed
       const transformedSourceProject = transformProject(sourceProject);
 
       if (transformedSourceProject.customWorkItemTypes) {

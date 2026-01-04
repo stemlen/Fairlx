@@ -3,7 +3,8 @@ import { client } from "@/lib/rpc";
 import { ResourceType, UsageSource } from "../types";
 
 interface UseGetUsageEventsParams {
-    workspaceId: string;
+    workspaceId?: string;
+    organizationId?: string;
     projectId?: string;
     resourceType?: ResourceType;
     source?: UsageSource;
@@ -20,6 +21,7 @@ export const useGetUsageEvents = (params: UseGetUsageEventsParams) => {
             const response = await client.api.usage.events.$get({
                 query: {
                     workspaceId: params.workspaceId,
+                    organizationId: params.organizationId,
                     projectId: params.projectId,
                     resourceType: params.resourceType,
                     source: params.source,
@@ -36,6 +38,7 @@ export const useGetUsageEvents = (params: UseGetUsageEventsParams) => {
 
             return await response.json();
         },
-        enabled: !!params.workspaceId,
+        // Enable if either workspaceId or organizationId is provided
+        enabled: !!(params.workspaceId || params.organizationId),
     });
 };

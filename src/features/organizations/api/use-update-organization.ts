@@ -7,6 +7,7 @@ interface UpdateOrganizationData {
     organizationId: string;
     name?: string;
     image?: File;
+    billingSettings?: string;
 }
 
 /**
@@ -17,10 +18,11 @@ export const useUpdateOrganization = () => {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async ({ organizationId, name, image }: UpdateOrganizationData) => {
+        mutationFn: async ({ organizationId, name, image, billingSettings }: UpdateOrganizationData) => {
             const formData = new FormData();
             if (name) formData.append("name", name);
             if (image) formData.append("image", image);
+            if (billingSettings) formData.append("billingSettings", billingSettings);
 
             const response = await fetch(`/api/organizations/${organizationId}`, {
                 method: "PATCH",

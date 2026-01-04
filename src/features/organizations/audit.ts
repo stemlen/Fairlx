@@ -1,11 +1,10 @@
 import { ID } from "node-appwrite";
 import { DATABASE_ID, ORGANIZATION_AUDIT_LOGS_ID } from "@/config";
 
+let hasWarnedConfig = false;
+
 /**
  * Organization Audit Actions
- * 
- * Track critical organization-level events for compliance and debugging.
- * These events are immutable once created.
  */
 export enum OrgAuditAction {
     /** Organization created via ORG signup */
@@ -123,7 +122,10 @@ export async function logOrgAudit({
     try {
         // Skip if audit log collection is not configured
         if (!ORGANIZATION_AUDIT_LOGS_ID) {
-            console.warn("[OrgAudit] Audit log collection not configured (NEXT_PUBLIC_APPWRITE_ORGANIZATION_AUDIT_LOGS_ID)");
+            if (!hasWarnedConfig) {
+                console.warn("[OrgAudit] Audit log collection not configured (NEXT_PUBLIC_APPWRITE_ORGANIZATION_AUDIT_LOGS_ID)");
+                hasWarnedConfig = true;
+            }
             return null;
         }
 
@@ -179,6 +181,15 @@ export async function getOrgAuditLogs({
     offset?: number;
 }): Promise<{ logs: OrgAuditLog[]; total: number }> {
     const { Query } = await import("node-appwrite");
+
+    // Safety check: if audit log collection is not configured, return empty
+    if (!ORGANIZATION_AUDIT_LOGS_ID) {
+        if (!hasWarnedConfig) {
+            console.warn("[OrgAudit] Audit log collection not configured (NEXT_PUBLIC_APPWRITE_ORGANIZATION_AUDIT_LOGS_ID)");
+            hasWarnedConfig = true;
+        }
+        return { logs: [], total: 0 };
+    }
 
     const queries = [
         Query.equal("organizationId", organizationId),

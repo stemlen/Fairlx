@@ -7,6 +7,7 @@ This document describes the Appwrite setup for Scrumpty: required environment va
 ## Environment Variables (Appwrite)
 Set these in `.env.local` and your production environment:
 ```
+
 NEXT_PUBLIC_APPWRITE_ENDPOINT=
 NEXT_PUBLIC_APPWRITE_PROJECT=
 NEXT_APPWRITE_KEY=

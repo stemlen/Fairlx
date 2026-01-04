@@ -11,6 +11,7 @@ import {
     IMAGES_BUCKET_ID,
 } from "@/config";
 import { sessionMiddleware } from "@/lib/session-middleware";
+import { createAdminClient } from "@/lib/appwrite";
 import { MemberRole } from "@/features/members/types";
 import { Organization, OrganizationMember, OrganizationRole } from "../types";
 import {
@@ -164,10 +165,11 @@ const app = new Hono()
                 primaryOrganizationId: organization.$id,
             });
 
-            // Log audit event for organization creation
+            // Log audit event for organization creation using admin client for robustness
             const { logOrgAudit, OrgAuditAction } = await import("../audit");
+            const { databases: adminDatabases } = await createAdminClient();
             await logOrgAudit({
-                databases,
+                databases: adminDatabases,
                 organizationId: organization.$id,
                 actorUserId: user.$id,
                 actionType: OrgAuditAction.ORGANIZATION_CREATED,
@@ -289,10 +291,11 @@ const app = new Hono()
                 }
             );
 
-            // Log audit event
+            // Log audit event using admin client
             const { logOrgAudit, OrgAuditAction } = await import("../audit");
+            const { databases: adminDatabases } = await createAdminClient();
             await logOrgAudit({
-                databases,
+                databases: adminDatabases,
                 organizationId: orgId,
                 actorUserId: user.$id,
                 actionType: OrgAuditAction.ORGANIZATION_DELETED,
@@ -652,10 +655,11 @@ const app = new Hono()
                 });
 
                 // Step 6: Log audit event for conversion
-                // CRITICAL: This happens after all changes succeed
+                // CRITICAL: This happens after all changes succeed. Use admin client.
                 const { logOrgAudit, OrgAuditAction } = await import("../audit");
+                const { databases: adminDatabases } = await createAdminClient();
                 await logOrgAudit({
-                    databases,
+                    databases: adminDatabases,
                     organizationId: organization.$id,
                     actorUserId: user.$id,
                     actionType: OrgAuditAction.ACCOUNT_CONVERTED,
@@ -739,8 +743,13 @@ const app = new Hono()
         try {
             const { getOrgAuditLogs } = await import("../audit");
 
+            // CRITICAL FIX: Use admin client for audit logs retrieval
+            // WHY: Audit logs are sensitive and usually don't have public/user read permissions.
+            // We already verified the user is an OWNER above using the session client.
+            const { databases: adminDatabases } = await createAdminClient();
+
             const result = await getOrgAuditLogs({
-                databases,
+                databases: adminDatabases,
                 organizationId: orgId,
                 actionType: actionType as import("../audit").OrgAuditAction | undefined,
                 limit,

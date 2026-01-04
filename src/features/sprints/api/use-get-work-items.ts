@@ -18,6 +18,8 @@ interface UseGetWorkItemsProps {
   flagged?: boolean;
   search?: string;
   includeChildren?: boolean;
+  limit?: number;
+  enabled?: boolean;
 }
 
 export const useGetWorkItems = ({
@@ -33,6 +35,8 @@ export const useGetWorkItems = ({
   flagged,
   search,
   includeChildren,
+  limit,
+  enabled = true,
 }: UseGetWorkItemsProps) => {
   const query = useQuery({
     queryKey: [
@@ -49,8 +53,9 @@ export const useGetWorkItems = ({
       flagged,
       search,
       includeChildren,
+      limit,
     ],
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && enabled,
     staleTime: QUERY_CONFIG.DYNAMIC.staleTime,
     gcTime: QUERY_CONFIG.DYNAMIC.gcTime,
     queryFn: async () => {
@@ -72,6 +77,7 @@ export const useGetWorkItems = ({
           flagged: flagged?.toString(),
           search,
           includeChildren: includeChildren?.toString(),
+          limit: limit?.toString(),
         },
       });
 

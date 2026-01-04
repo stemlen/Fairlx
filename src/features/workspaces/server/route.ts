@@ -100,8 +100,7 @@ const app = new Hono()
 
       const { name, image } = c.req.valid("form");
 
-      // CRITICAL: Check PERSONAL account workspace limit
-      // WHY: PERSONAL accounts can only have ONE workspace (billing constraint)
+      // Validate workspace limit
       const { validateWorkspaceCreation } = await import("@/features/members/utils");
       const accountType = (user.prefs?.accountType as "PERSONAL" | "ORG") || "PERSONAL";
 
@@ -134,11 +133,11 @@ const app = new Hono()
         ).toString("base64")}`;
       }
 
-      // Get organization ID for ORG accounts
+      // Get ORG ID
       const prefs = user.prefs || {};
       const primaryOrganizationId = prefs.primaryOrganizationId as string | undefined;
 
-      // Check if this is the first workspace (will be default)
+      // Check if first workspace
       const existingMembers = await databases.listDocuments(DATABASE_ID, MEMBERS_ID, [
         Query.equal("userId", user.$id),
       ]);
@@ -153,14 +152,14 @@ const app = new Hono()
           userId: user.$id,
           imageUrl: uploadedImageUrl,
           inviteCode: generateInviteCode(6),
-          // Link to organization for ORG accounts
+          // Link organization
           organizationId: accountType === "ORG" ? primaryOrganizationId : null,
           isDefault: isFirstWorkspace,
           billingScope: accountType === "ORG" ? "organization" : "user",
         }
       );
 
-      // Grant OWNER role for first workspace, ADMIN for subsequent
+      // Grant initial role
       await databases.createDocument(DATABASE_ID, MEMBERS_ID, ID.unique(), {
         userId: user.$id,
         workspaceId: workspace.$id,
@@ -188,7 +187,7 @@ const app = new Hono()
         userId: user.$id,
       });
 
-      // OWNER and ADMIN can update workspace settings
+      // Verify update permissions
       if (!member || (member.role !== MemberRole.ADMIN && member.role !== MemberRole.OWNER)) {
         return c.json({ error: "Unauthorized" }, 401);
       }
@@ -239,8 +238,7 @@ const app = new Hono()
       userId: user.$id,
     });
 
-    // Only OWNER can delete workspace (not ADMIN)
-    // WHY: Deletion is irreversible and affects billing
+    // Verify delete permissions
     if (!member || member.role !== MemberRole.OWNER) {
       return c.json({ error: "Only workspace owner can delete" }, 401);
     }
@@ -297,7 +295,7 @@ const app = new Hono()
         [Query.equal("workspaceId", workspaceId)]
       );
 
-      // Delete all time logs
+      // Delete time logs
       for (const timeLog of timeLogs.documents) {
         await databases.deleteDocument(DATABASE_ID, TIME_LOGS_ID, timeLog.$id);
       }
@@ -312,7 +310,7 @@ const app = new Hono()
         await databases.deleteDocument(DATABASE_ID, PROJECTS_ID, project.$id);
       }
 
-      // Delete all space members first, then spaces (Issue 3 - cascade)
+      // Delete spaces and members
       for (const space of spaces.documents) {
         // Get and delete all members of this space
         const spaceMembers = await databases.listDocuments(
@@ -363,7 +361,7 @@ const app = new Hono()
       userId: user.$id,
     });
 
-    // OWNER and ADMIN can reset invite code
+    // Verify reset permissions
     if (!member || (member.role !== MemberRole.ADMIN && member.role !== MemberRole.OWNER)) {
       return c.json({ error: "Unauthorized" }, 401);
     }

@@ -20,6 +20,7 @@ interface SprintCardProps {
   sprint: PopulatedSprint;
   workspaceId: string;
   projectId: string;
+  hasActiveSprint?: boolean;
 }
 
 const statusBadgeStyles = {
@@ -33,6 +34,7 @@ export const SprintCard = ({
   sprint,
   workspaceId,
   projectId,
+  hasActiveSprint,
 }: SprintCardProps) => {
   const [isExpanded, setIsExpanded] = useState(sprint.status === SprintStatus.ACTIVE);
 
@@ -120,7 +122,7 @@ export const SprintCard = ({
           </div>
 
           {/* Options menu */}
-          <SprintOptionsMenu sprint={sprint} />
+          <SprintOptionsMenu sprint={sprint} hasActiveSprint={hasActiveSprint} />
         </div>
       </CardHeader>
 

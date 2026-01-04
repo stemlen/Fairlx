@@ -25,6 +25,7 @@ const baseTaskSchema = z.object({
       return isNaN(num) ? undefined : num;
     })
     .optional(),
+  storyPoints: z.number().min(0).optional(),
   priority: z.union([z.nativeEnum(TaskPriority), z.string()]).optional(),
   labels: z.array(z.string()).optional(),
   flagged: z.boolean().optional(),

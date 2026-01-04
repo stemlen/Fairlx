@@ -1,5 +1,6 @@
-import { CalendarIcon, MoreHorizontalIcon, FlagIcon, MessageCircle } from "lucide-react";
+import { CalendarIcon, MoreHorizontalIcon, FlagIcon, MessageCircle, GripVertical } from "lucide-react";
 import { Project } from "@/features/projects/types";
+import { DraggableProvidedDragHandleProps } from "@hello-pangea/dnd";
 
 import { TaskActions } from "./task-actions";
 import { LabelBadge } from "./LabelBadge";
@@ -17,6 +18,7 @@ interface KanbanCardProps {
     canEdit?: boolean;
     canDelete?: boolean;
     project?: Project;
+    dragHandleProps?: DraggableProvidedDragHandleProps | null;
 }
 
 export const KanbanCard = ({
@@ -25,7 +27,8 @@ export const KanbanCard = ({
     showSelection = false,
     canEdit = false,
     canDelete = false,
-    project
+    project,
+    dragHandleProps
 }: KanbanCardProps) => {
     const { open: openPreview } = useTaskPreviewModal();
 
@@ -36,6 +39,8 @@ export const KanbanCard = ({
             : [];
 
     const handleCardClick = () => {
+        // Prevent opening if the click originated from actions or other interactive elements
+        // (Though stopPropagation on those elements usually handles this, it's good to be safe)
         openPreview(task.$id);
     };
 
@@ -45,25 +50,25 @@ export const KanbanCard = ({
     return (
         <div
             onClick={handleCardClick}
-            className={`bg-white mb-2.5 rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition-shadow ${isSelected ? 'ring-2 ring-blue-500' : ''
+            className={`bg-white mb-2.5 rounded-xl border shadow-sm group hover:shadow-md transition-shadow relative ${isSelected ? 'ring-2 ring-blue-500' : ''
                 } ${showSelection ? 'hover:bg-gray-50' : ''}`}
         >
             <div className="flex p-4 flex-col items-start justify-between gap-x-2">
 
+                <div className="flex-1 flex w-full justify-between items-start">
 
-                {/* {showSelection && (
-          <div className="flex items-center">
-            <Checkbox
-              checked={isSelected}
-              onCheckedChange={(checked) => onSelect?.(task.$id, !!checked)}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        )} */}
+                    <div className="flex gap-2 items-center">
+                        {/* Drag Handle - Only visible on hover or when dragging, but taking up space layout-wise if needed, or absolute */}
+                        {dragHandleProps && (
+                            <div
+                                {...dragHandleProps}
+                                className="mr-1 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <GripVertical className="size-4" />
+                            </div>
+                        )}
 
-                <div className="flex-1 flex w-full justify-between ">
-
-                    <div className="flex gap-2">
                         {task.priority && (
                             <PriorityBadge
                                 priority={task.priority}
@@ -107,7 +112,7 @@ export const KanbanCard = ({
 
                 </div>
 
-                <div className="flex items-start gap-2 mt-4">
+                <div className="flex items-start gap-2 mt-4 cursor-pointer">
                     {task.flagged && (
                         <FlagIcon className="size-4 fill-red-500 text-red-500 shrink-0 mt-0.5" />
                     )}
@@ -133,7 +138,7 @@ export const KanbanCard = ({
 
 
 
-            <div className="flex items-center border-t py-3 px-4 border-gray-200 gap-x-1.5 justify-between">
+            <div className="flex items-center border-t py-3 px-4 border-gray-200 gap-x-1.5 justify-between bg-gray-50/50 rounded-b-xl">
                 <div className="flex items-center gap-x-3">
                     <p className="text-xs flex gap-0.5 items-center text-muted-foreground">
                         <CalendarIcon className="size-[14px] inline-block mr-1 text-gray-500" />

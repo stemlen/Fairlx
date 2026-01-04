@@ -10,6 +10,8 @@ import {
 } from "@/config";
 import { sessionMiddleware } from "@/lib/session-middleware";
 import { getMember } from "@/features/members/utils";
+import { trackUsage, createIdempotencyKey } from "@/lib/track-usage";
+import { ResourceType, UsageSource, UsageModule } from "@/features/usage/types";
 
 import { generateDocumentationSchema } from "../schemas";
 import { GitHubRepository, CodeDocumentation } from "../types";
@@ -92,7 +94,7 @@ const app = new Hono()
 
           // Generate comprehensive documentation in ONE Gemini API call
           const filesToDocument = files.slice(0, 20);
-          
+
           const documentation = await geminiAPI.generateDocumentation(
             {
               name: repository.repositoryName,
@@ -101,6 +103,23 @@ const app = new Hono()
             },
             filesToDocument
           );
+
+          // Track usage for GitHub documentation generation (non-blocking)
+          trackUsage({
+            workspaceId: project.workspaceId,
+            projectId,
+            module: UsageModule.GITHUB,
+            resourceType: ResourceType.COMPUTE,
+            units: 1 + filesToDocument.length, // 1 base + files processed
+            source: UsageSource.AI,
+            metadata: {
+              operation: "generate_documentation",
+              repositoryName: repository.repositoryName,
+              filesProcessed: filesToDocument.length,
+              documentationLength: documentation.length,
+            },
+            idempotencyKey: createIdempotencyKey(UsageModule.GITHUB, "doc_gen", projectId),
+          });
 
           // Save or update documentation
           const existingDocs = await databases.listDocuments<CodeDocumentation>(

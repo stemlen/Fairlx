@@ -22,15 +22,17 @@ import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
 import { ProfileSidebar } from "@/components/ProfileSidebar";
-import { AppReadinessProvider, useAppReadiness } from "@/components/app-readiness-provider";
-import { GlobalAppLoader } from "@/components/global-app-loader";
+import { AccountLifecycleProvider, useAccountLifecycle } from "@/components/account-lifecycle-provider";
+import { LifecycleGuard } from "@/components/lifecycle-guard";
+import { cn } from "@/lib/utils";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
 /**
- * Inner layout component that uses the readiness context
+ * Inner layout component that renders the actual dashboard content.
+ * Guarded by LifecycleGuard - this only renders when lifecycle state is valid.
  */
 const DashboardContent = ({ children }: DashboardLayoutProps) => {
   const pathname = usePathname();
@@ -38,80 +40,80 @@ const DashboardContent = ({ children }: DashboardLayoutProps) => {
   const workspaceId = useWorkspaceId();
   const isTaskDetailPage = /^\/workspaces\/[^\/]+\/tasks\/[^\/]+$/.test(pathname || "");
   const isMainDashboard = /^\/workspaces\/[^\/]+$/.test(pathname || "");
-  const { isAppReady } = useAppReadiness();
+  const { isLoaded } = useAccountLifecycle();
+
+  // Don't render until lifecycle is loaded
+  if (!isLoaded) return null;
 
   return (
-    <>
-      {/* Global App Loader - shows during cold start */}
-      <GlobalAppLoader />
+    <div className={`min-h-screen ${isMainDashboard ? 'bg-[#ffffff]' : ''}`}>
+      <CreateWorkspaceModal />
+      <CreateProjectModal />
+      <CreateWorkItemModal />
+      <CreateTaskModal />
+      <EditTaskModal />
+      <TaskDetailsModalWrapper />
+      <TaskPreviewModalWrapper />
+      <CreateCustomColumnModalWrapper />
+      <ManageColumnsModalWrapper />
+      <CreateTeamModal />
+      <EditTeamModal />
+      <CreateProgramModal />
+      <EditProgramModal />
+      {workspaceId && (
+        <>
+          <CreateSpaceModal />
+          <CreateWorkflowModal workspaceId={workspaceId} />
+          <CreateLinkModal workspaceId={workspaceId} />
+        </>
+      )}
 
-      {/* Main content - only rendered when app is ready */}
-      {isAppReady && (
-        <div className={`min-h-screen ${isMainDashboard ? 'bg-[#ffffff]' : ''}`}>
-          <CreateWorkspaceModal />
-          <CreateProjectModal />
-          <CreateWorkItemModal />
-          <CreateTaskModal />
-          <EditTaskModal />
-          <TaskDetailsModalWrapper />
-          <TaskPreviewModalWrapper />
-          <CreateCustomColumnModalWrapper />
-          <ManageColumnsModalWrapper />
-          <CreateTeamModal />
-          <EditTeamModal />
-          <CreateProgramModal />
-          <EditProgramModal />
-          {workspaceId && (
-            <>
-              <CreateSpaceModal />
-              <CreateWorkflowModal workspaceId={workspaceId} />
-              <CreateLinkModal workspaceId={workspaceId} />
-            </>
-          )}
-
-          <div className="flex w-full h-screen">
-            <div className="fixed left-0 top-0 hidden lg:block lg:w-[264px] h-full overflow-y-auto">
-              {isProfilePage ? <ProfileSidebar /> : <Sidebar />}
-            </div>
-            <div className="lg:pl-[264px] w-full h-full flex flex-col">
-              <Navbar />
-              <div className="flex-1 overflow-y-scroll">
-                <div className="mx-auto max-w-screen-2xl">
-                  <main className={`${isTaskDetailPage ? "py-0 px-0" : "py-8 px-6"} flex flex-col overflow-y-scroll`}>
-                    {children}
-                  </main>
-                </div>
-              </div>
+      <div className="flex w-full h-screen">
+        <div className="fixed left-0 top-0 hidden lg:block lg:w-[264px] h-full overflow-y-auto">
+          {isProfilePage ? <ProfileSidebar /> : <Sidebar />}
+        </div>
+        <div className="lg:pl-[264px] w-full flex flex-col min-h-screen">
+          <Navbar />
+          <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900/50">
+            <div className="mx-auto max-w-screen-2xl">
+              <main className={cn(
+                "flex flex-col",
+                isTaskDetailPage ? "py-0 px-0" : "py-8 px-6"
+              )}>
+                {children}
+              </main>
             </div>
           </div>
-
-          {/* Project AI Chat - floating button, only shows on project pages */}
-          <ProjectAIChatWrapper />
         </div>
-      )}
-    </>
+      </div>
+
+      {/* Project AI Chat - floating button, only shows on project pages */}
+      <ProjectAIChatWrapper />
+    </div>
   );
 };
 
 /**
- * Dashboard Layout with Global App Readiness
+ * Dashboard Layout with Centralized Lifecycle Management
  * 
- * Wraps the dashboard with AppReadinessProvider to ensure:
- * - Auth verified
- * - User profile loaded
- * - Account type resolved
- * - Workspaces loaded
- * - Organizations loaded (if ORG account)
+ * Architecture:
+ * 1. AccountLifecycleProvider - Single source of truth for lifecycle state
+ * 2. LifecycleGuard - Enforces routing rules BEFORE rendering
+ * 3. DashboardContent - Actual dashboard UI (only renders when valid)
  * 
- * Until ready, only the GlobalAppLoader is shown.
+ * This ensures:
+ * - No invalid screen is ever rendered
+ * - Routing decisions are made at the layout level
+ * - Zero-flash experience during redirects
  */
 const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   return (
-    <AppReadinessProvider>
-      <DashboardContent>{children}</DashboardContent>
-    </AppReadinessProvider>
+    <AccountLifecycleProvider>
+      <LifecycleGuard>
+        <DashboardContent>{children}</DashboardContent>
+      </LifecycleGuard>
+    </AccountLifecycleProvider>
   );
 };
 
 export default DashboardLayout;
-
