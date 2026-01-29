@@ -153,7 +153,7 @@ export const CompleteSprintModal = ({
                         )}
 
                         {unfinishedItems === 0 && (
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-sm text-gray-500">
                                 Great job! All tasks are done. This sprint will be marked as completed.
                             </p>
                         )}

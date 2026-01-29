@@ -355,7 +355,7 @@ export async function lockBillingCycle(
             };
         }
 
-        logTiming('lock_acquired', true);
+        const _timing = logTiming('lock_acquired', true);
         return {
             success: true,
             alreadyLocked: false,

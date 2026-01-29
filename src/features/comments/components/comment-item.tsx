@@ -72,11 +72,11 @@ export const CommentItem = ({
 
   const authorInitials = comment.author?.name
     ? comment.author.name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2)
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
     : "?";
 
   const handleEdit = () => {
@@ -126,18 +126,18 @@ export const CommentItem = ({
           </Avatar>
 
           <div className="flex-1 min-w-0">
-            <div className="bg-muted rounded-lg px-4 py-3">
+            <div className="bg-gray-100 rounded-lg px-4 py-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm text-foreground">
+                  <span className="font-medium text-sm text-gray-900">
                     {comment.author?.name || "Unknown User"}
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-gray-500">
                     {formatDistanceToNow(new Date(comment.$createdAt), {
                       addSuffix: true,
                     })}
                     {comment.isEdited && (
-                      <span className="ml-1 text-muted-foreground/70">(edited)</span>
+                      <span className="ml-1 text-gray-400">(edited)</span>
                     )}
                   </span>
                 </div>
@@ -148,7 +148,7 @@ export const CommentItem = ({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                        className="h-7 w-7 text-gray-400 hover:text-gray-600"
                         onClick={() => setIsReplying(!isReplying)}
                       >
                         <Reply className="h-3.5 w-3.5" />

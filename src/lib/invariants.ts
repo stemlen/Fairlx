@@ -43,6 +43,13 @@ export function assertInvariant(
     context?: Record<string, unknown>
 ): asserts condition {
     if (!condition) {
+        const _violation: InvariantViolation = {
+            message,
+            invariantName,
+            context,
+            timestamp: new Date().toISOString(),
+        };
+
         if (process.env.NODE_ENV === "development") {
             throw new Error(
                 `[INVARIANT VIOLATION: ${invariantName}] ${message}\n` +

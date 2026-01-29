@@ -52,7 +52,7 @@ import { isBefore, format } from "date-fns";
 
 // Status icon map matching kanban board
 const statusIconMap: Record<WorkItemStatus, React.ReactNode> = {
-  [WorkItemStatus.TODO]: <CircleIcon className="size-4 text-muted-foreground/50" />,
+  [WorkItemStatus.TODO]: <CircleIcon className="size-4 text-gray-400" />,
   [WorkItemStatus.ASSIGNED]: <CircleIcon className="size-4 text-red-400" />,
   [WorkItemStatus.IN_PROGRESS]: <CircleDotDashedIcon className="size-4 text-yellow-500" />,
   [WorkItemStatus.IN_REVIEW]: <CircleDotIcon className="size-4 text-blue-400" />,
@@ -215,7 +215,7 @@ export const MyWorkView = () => {
               columns.push({
                 id: s,
                 name: s,
-                icon: <CircleIcon className="size-4 text-muted-foreground" />,
+                icon: <CircleIcon className="size-4 text-gray-500" />,
                 isCustom: true,
               });
             }
@@ -577,7 +577,7 @@ const typeColors: Record<string, string> = {
   BUG: "bg-red-500",
   TASK: "bg-green-500",
   EPIC: "bg-purple-500",
-  SUBTASK: "bg-muted-foreground/50",
+  SUBTASK: "bg-gray-500",
 };
 
 const priorityColors: Record<string, string> = {
@@ -597,7 +597,7 @@ const MyWorkKanbanCard = ({ workItem, isDragging }: MyWorkKanbanCardProps) => {
         {/* Header with type indicator, key, and menu */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <div className={cn("size-1.5 rounded-full", typeColors[workItem.type] || "bg-muted-foreground/50")} />
+            <div className={cn("size-1.5 rounded-full", typeColors[workItem.type] || "bg-gray-400")} />
             <span className="text-[10px] font-medium text-muted-foreground">{workItem.key}</span>
             {workItem.flagged && (
               <Flag className="size-3 fill-red-500 text-red-500" />
@@ -615,7 +615,7 @@ const MyWorkKanbanCard = ({ workItem, isDragging }: MyWorkKanbanCardProps) => {
         <div className="flex items-center gap-2 mb-2">
           <span className={cn(
             "text-[10px] px-1.5 py-0.5 rounded font-medium",
-            priorityColors[workItem.priority] || "text-muted-foreground bg-muted"
+            priorityColors[workItem.priority] || "text-gray-500 bg-gray-100"
           )}>
             {workItem.priority}
           </span>
@@ -677,7 +677,7 @@ const MyWorkListItem = ({ workItem, customColumns }: MyWorkListItemProps) => {
     }
     // Fallback
     return {
-      icon: <CircleIcon className="size-4 text-muted-foreground/50" />,
+      icon: <CircleIcon className="size-4 text-gray-400" />,
       label: workItem.status,
     };
   };
@@ -688,7 +688,7 @@ const MyWorkListItem = ({ workItem, customColumns }: MyWorkListItemProps) => {
     <div className="grid grid-cols-12 gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors cursor-pointer items-center group">
       {/* Work Item Info */}
       <div className="col-span-5 flex items-center gap-2 min-w-0">
-        <div className={cn("size-1.5 rounded-full flex-shrink-0", typeColors[workItem.type] || "bg-muted-foreground/50")} />
+        <div className={cn("size-1.5 rounded-full flex-shrink-0", typeColors[workItem.type] || "bg-gray-400")} />
         <span className="text-[10px] font-medium text-muted-foreground flex-shrink-0">{workItem.key}</span>
         {workItem.flagged && (
           <Flag className="size-3 fill-red-500 text-red-500 flex-shrink-0" />
@@ -708,7 +708,7 @@ const MyWorkListItem = ({ workItem, customColumns }: MyWorkListItemProps) => {
       <div className="col-span-2">
         <span className={cn(
           "text-[10px] px-1.5 py-0.5 rounded font-medium",
-          priorityColors[workItem.priority] || "text-muted-foreground bg-muted"
+          priorityColors[workItem.priority] || "text-gray-500 bg-gray-100"
         )}>
           {workItem.priority}
         </span>

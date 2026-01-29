@@ -187,7 +187,7 @@ interface CommandListRef {
 }
 
 const CommandList = forwardRef<CommandListRef, CommandListProps>(
-  ({ items, command }, ref) => {
+  ({ items, command, query: _query }, ref) => {
     const [selectedIndex, setSelectedIndex] = useState(0);
 
     const selectItem = (index: number) => {
@@ -321,7 +321,7 @@ export const createSlashCommandExtension = (
   // Suppress unused parameter warnings - these are for future work item linking
   void workspaceId;
   void projectId;
-
+  
   return Extension.create({
     name: "slashCommand",
 

@@ -28,7 +28,7 @@ const statusConfig = {
     icon: Clock,
     bgColor: "bg-muted/30",
     badgeClass: "bg-muted text-muted-foreground border-border",
-    accentColor: "bg-muted-foreground/30",
+    accentColor: "bg-slate-400",
   },
   [SprintStatus.ACTIVE]: {
     label: "Active",
@@ -103,11 +103,11 @@ export const SprintCard = ({
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="h-6 w-6 p-0 hover:bg-muted rounded-md"
+                className="h-6 w-6 p-0 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
               >
                 <ChevronDown
                   className={cn(
-                    "size-4 text-muted-foreground transition-transform duration-200",
+                    "size-4 text-slate-500 transition-transform duration-200",
                     isExpanded ? "rotate-0" : "-rotate-90"
                   )}
                 />
@@ -132,7 +132,7 @@ export const SprintCard = ({
               {/* Date range */}
               {sprint.startDate && sprint.endDate && (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Calendar className="size-3 text-muted-foreground" />
+                  <Calendar className="size-3 text-slate-400" />
                   <span className="font-medium">
                     {format(new Date(sprint.startDate), "MMM d")} - {format(new Date(sprint.endDate), "MMM d")}
                   </span>
@@ -159,7 +159,7 @@ export const SprintCard = ({
 
               {/* Work items count */}
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Target className="size-3 text-muted-foreground" />
+                <Target className="size-3 text-slate-400" />
                 <span>{sprint.workItemCount || 0} items</span>
               </div>
 
@@ -174,7 +174,7 @@ export const SprintCard = ({
               {/* Progress - compact inline */}
               {(sprint.totalPoints ?? 0) > 0 && (
                 <div className="flex items-center gap-2 ml-auto">
-                  <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className={cn(
                         "h-full rounded-full transition-all duration-300",
@@ -185,7 +185,7 @@ export const SprintCard = ({
                   </div>
                   <span className={cn(
                     "text-[10px] font-semibold min-w-[32px]",
-                    completionPercentage === 100 ? "text-green-600" : "text-muted-foreground"
+                    completionPercentage === 100 ? "text-green-600" : "text-slate-500"
                   )}>
                     {completionPercentage}%
                   </span>
@@ -209,7 +209,7 @@ export const SprintCard = ({
       {isExpanded && (
         <CardContent className="space-y-3 pt-3 pb-4 px-4">
           {/* Divider */}
-          <div className="h-px bg-border -mx-4" />
+          <div className="h-px bg-slate-200 dark:bg-slate-700 -mx-4" />
 
           {/* Create Work Item Bar */}
           <CreateWorkItemBar
@@ -232,8 +232,8 @@ export const SprintCard = ({
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="p-2 rounded-full bg-muted mb-2">
-                <Target className="size-4 text-muted-foreground" />
+              <div className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 mb-2">
+                <Target className="size-4 text-slate-400" />
               </div>
               <p className="text-xs text-muted-foreground">
                 No work items yet. Add items to get started.

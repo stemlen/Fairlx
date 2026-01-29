@@ -127,9 +127,9 @@ export const WorkItemCard = ({ workItem, workspaceId, projectId, onViewDetails }
   // Status may be a custom column ID not in statusConfig, so provide a fallback
   const status = statusConfig[workItem.status as WorkItemStatus] ?? {
     label: workItem.status,
-    dot: "bg-muted-foreground/50",
-    bg: "bg-muted",
-    text: "text-muted-foreground",
+    dot: "bg-gray-400",
+    bg: "bg-gray-100 dark:bg-gray-700",
+    text: "text-gray-600",
   };
 
   const handleStatusChange = (status: string) => {
@@ -189,7 +189,7 @@ export const WorkItemCard = ({ workItem, workspaceId, projectId, onViewDetails }
 
             {/* Type Selector */}
             <Select value={workItem.type} onValueChange={handleTypeChange}>
-              <SelectTrigger className={cn("h-6 px-2 text-[10px]", typeConfig[workItem.type]?.light || "bg-muted", typeConfig[workItem.type]?.color || "text-muted-foreground")}>
+              <SelectTrigger className={cn("h-6 px-2 text-[10px]", typeConfig[workItem.type]?.light || "bg-gray-50", typeConfig[workItem.type]?.color || "text-gray-600")}>
                 <div className="flex items-center gap-1">
                   <TypeIcon className="size-3" />
                   <SelectValue />

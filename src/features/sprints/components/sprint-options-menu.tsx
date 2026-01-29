@@ -36,8 +36,8 @@ const statusConfig = {
   [SprintStatus.PLANNED]: {
     label: "Planned",
     icon: Clock,
-    color: "text-muted-foreground",
-    dotColor: "bg-muted-foreground/30",
+    color: "text-slate-600 dark:text-slate-400",
+    dotColor: "bg-slate-400",
   },
   [SprintStatus.ACTIVE]: {
     label: "Active",
@@ -99,17 +99,17 @@ export const SprintOptionsMenu = ({
             size="sm"
             className="h-6 w-6 p-0 rounded-md  group-hover:opacity-100 transition-opacity"
           >
-            <MoreHorizontal className="size-4 text-foreground/70" />
+            <MoreHorizontal className="size-4 text-slate-800" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1.5">
+          <DropdownMenuLabel className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-2 py-1.5">
             Update Status
           </DropdownMenuLabel>
 
           {Object.entries(statusConfig).map(([status, config]) => {
             const StatusIcon = config.icon;
-
+            
             // Permission Checks
             if (status === SprintStatus.ACTIVE && !can(PERMISSIONS.SPRINT_START)) return null;
             if (status === SprintStatus.COMPLETED && !can(PERMISSIONS.SPRINT_COMPLETE)) return null;
@@ -124,7 +124,7 @@ export const SprintOptionsMenu = ({
                 disabled={isDisabled}
                 className={cn(
                   "text-xs cursor-pointer py-1.5 px-2",
-                  isCurrentStatus && "bg-muted"
+                  isCurrentStatus && "bg-slate-50 dark:bg-slate-800"
                 )}
                 title={isDisabled && status === SprintStatus.ACTIVE ? "Another sprint is already active" : undefined}
               >

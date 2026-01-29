@@ -1,11 +1,11 @@
 "use client";
 
-import {
-  FileText,
-  MoreVertical,
-  Download,
-  Trash2,
-  Pencil,
+import { 
+  FileText, 
+  MoreVertical, 
+  Download, 
+  Trash2, 
+  Pencil, 
   Archive,
   RefreshCw,
   X,
@@ -101,37 +101,37 @@ export const DocumentCard = ({
   const getFileIcon = () => {
     const ext = getFileExtensionLabel(document.mimeType);
     const iconColors: Record<string, string> = {
-      PDF: "bg-primary/10 text-primary",
-      DOC: "bg-primary/10 text-primary",
-      DOCX: "bg-primary/10 text-primary",
-      XLS: "bg-emerald-500/10 text-emerald-600",
-      XLSX: "bg-emerald-500/10 text-emerald-600",
-      PPT: "bg-amber-500/10 text-amber-600",
-      PPTX: "bg-amber-500/10 text-amber-600",
-      PNG: "bg-violet-500/10 text-violet-600",
-      JPG: "bg-violet-500/10 text-violet-600",
-      MD: "bg-muted text-muted-foreground",
-      TXT: "bg-muted text-muted-foreground",
+      PDF: "bg-[#1269d6]/10 text-[#1269d6]",
+      DOC: "bg-[#1269d6]/10 text-[#1269d6]",
+      DOCX: "bg-[#1269d6]/10 text-[#1269d6]",
+      XLS: "bg-emerald-50 text-emerald-600",
+      XLSX: "bg-emerald-50 text-emerald-600",
+      PPT: "bg-amber-50 text-amber-600",
+      PPTX: "bg-amber-50 text-amber-600",
+      PNG: "bg-violet-50 text-violet-600",
+      JPG: "bg-violet-50 text-violet-600",
+      MD: "bg-gray-100 text-gray-600",
+      TXT: "bg-gray-100 text-gray-500",
     };
-    return iconColors[ext] || "bg-muted text-muted-foreground/50";
+    return iconColors[ext] || "bg-gray-100 text-gray-400";
   };
 
   const getFileTypeBadge = () => {
     const ext = getFileExtensionLabel(document.mimeType);
     const typeColors: Record<string, string> = {
-      PDF: "bg-primary",
-      DOC: "bg-primary",
-      DOCX: "bg-primary",
+      PDF: "bg-[#1269d6]",
+      DOC: "bg-[#1269d6]",
+      DOCX: "bg-[#1269d6]",
       XLS: "bg-emerald-500",
       XLSX: "bg-emerald-500",
       PPT: "bg-amber-500",
       PPTX: "bg-amber-500",
       PNG: "bg-violet-500",
       JPG: "bg-violet-500",
-      MD: "bg-muted-foreground/50",
-      TXT: "bg-muted-foreground/50",
+      MD: "bg-gray-500",
+      TXT: "bg-gray-500",
     };
-    return typeColors[ext] || "bg-muted-foreground/50";
+    return typeColors[ext] || "bg-gray-500";
   };
 
   const getUserInitials = () => {
@@ -143,16 +143,17 @@ export const DocumentCard = ({
     <>
       <ConfirmDialog />
       {/* Table-row style layout inspired by screenshot */}
-      <div
-        className={`group flex items-center gap-4 py-3.5 px-4 transition-colors cursor-pointer ${isSelected
-          ? "bg-primary/5"
-          : "hover:bg-muted/50"
-          } ${!isLast ? "border-b border-border" : ""}`}
+      <div 
+        className={`group flex items-center gap-4 py-3.5 px-4 transition-colors cursor-pointer ${
+          isSelected 
+            ? "bg-[#1269d6]/5" 
+            : "hover:bg-gray-50 dark:hover:bg-gray-800/50"
+        } ${!isLast ? "border-b border-gray-100 dark:border-gray-800" : ""}`}
         onClick={handleOpenInNewTab}
       >
         {/* Checkbox for selection */}
         <div className="w-5 flex-shrink-0">
-          <input
+          <input 
             type="checkbox"
             checked={isSelected}
             onChange={(e) => {
@@ -160,7 +161,7 @@ export const DocumentCard = ({
               onSelect?.();
             }}
             onClick={(e) => e.stopPropagation()}
-            className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20 cursor-pointer"
+            className="h-4 w-4 rounded border-gray-300 text-[#1269d6] focus:ring-[#1269d6]/20 cursor-pointer"
           />
         </div>
 
@@ -171,7 +172,7 @@ export const DocumentCard = ({
 
         {/* File Name */}
         <div className="flex-1 min-w-[150px]">
-          <p className="text-xs font-medium text-foreground truncate" title={document.name}>
+          <p className="text-xs font-medium text-gray-900 dark:text-white truncate" title={document.name}>
             {document.name}
           </p>
         </div>
@@ -185,21 +186,21 @@ export const DocumentCard = ({
 
         {/* File Size */}
         <div className="w-16 flex-shrink-0">
-          <span className="text-xs font-light text-muted-foreground">{formatFileSize(document.size)}</span>
+          <span className="text-xs font-light text-gray-500">{formatFileSize(document.size)}</span>
         </div>
 
         {/* Uploader */}
         <div className="flex items-center gap-2 w-40 flex-shrink-0">
           <Avatar className="h-7 w-7 flex-shrink-0">
-            <AvatarFallback className="text-[10px] font-medium bg-primary/10 text-primary">
+            <AvatarFallback className="text-[10px] font-medium bg-[#1269d6]/10 text-[#1269d6]">
               {getUserInitials()}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
               {document.uploader?.name || "Unknown"}
             </p>
-            <p className="text-[10px] font-light text-muted-foreground truncate">
+            <p className="text-[10px] font-light text-gray-400 truncate">
               {formatDistanceToNow(new Date(document.$createdAt), { addSuffix: true })}
             </p>
           </div>
@@ -207,16 +208,16 @@ export const DocumentCard = ({
 
         {/* Category Tag */}
         <div className="w-32 flex-shrink-0">
-          <Badge
-            variant="outline"
-            className="text-[10px] font-light text-muted-foreground border-border gap-1 py-0.5"
+          <Badge 
+            variant="outline" 
+            className="text-[10px] font-light text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 gap-1 py-0.5"
           >
             {DOCUMENT_CATEGORY_LABELS[document.category as DocumentCategory] || "Other"}
             {document.isArchived && (
               <span className="text-amber-500">• Archived</span>
             )}
-            <button
-              className="ml-0.5 hover:text-foreground"
+            <button 
+              className="ml-0.5 hover:text-gray-900 dark:hover:text-white"
               onClick={(e) => e.stopPropagation()}
             >
               <X className="h-2.5 w-2.5" />
@@ -232,7 +233,7 @@ export const DocumentCard = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                  className="h-7 w-7 text-gray-400 hover:text-[#1269d6] hover:bg-[#1269d6]/10"
                   onClick={(e) => { e.stopPropagation(); handleDownload(); }}
                   disabled={isDownloading}
                 >
@@ -249,7 +250,7 @@ export const DocumentCard = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  className="h-7 w-7 text-gray-400 hover:text-red-500 hover:bg-red-50"
                   onClick={(e) => { e.stopPropagation(); handleDelete(); }}
                   disabled={isDeleting}
                 >
@@ -265,7 +266,7 @@ export const DocumentCard = ({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                className="h-7 w-7 text-gray-400 hover:text-gray-600"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreVertical className="h-3.5 w-3.5" />

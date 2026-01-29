@@ -169,7 +169,7 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        <Loader2 className="h-5 w-5 animate-spin text-[#1269d6]" />
       </div>
     );
   }
@@ -177,9 +177,9 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-center">
-        <FileText className="h-8 w-8 text-muted-foreground/50 mb-3" />
-        <h3 className="text-sm font-medium text-foreground">Failed to load documents</h3>
-        <p className="text-xs font-light text-muted-foreground">{error.message}</p>
+        <FileText className="h-8 w-8 text-gray-300 mb-3" />
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Failed to load documents</h3>
+        <p className="text-xs font-light text-gray-500">{error.message}</p>
       </div>
     );
   }
@@ -189,7 +189,7 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
       {/* Search & Filters Bar - Inspired by screenshot */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
           <Input
             placeholder="Search documents"
             value={searchQuery}
@@ -227,9 +227,9 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
             id="includeArchived"
             checked={includeArchived}
             onCheckedChange={(checked) => setIncludeArchived(!!checked)}
-            className="h-3.5 w-3.5 border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+            className="h-3.5 w-3.5 border-gray-300 data-[state=checked]:bg-[#1269d6] data-[state=checked]:border-[#1269d6]"
           />
-          <Label htmlFor="includeArchived" className="text-xs font-light text-muted-foreground cursor-pointer">
+          <Label htmlFor="includeArchived" className="text-xs font-light text-gray-500 cursor-pointer">
             Archived
           </Label>
         </div>
@@ -252,7 +252,7 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
       </div>
 
       {/* Documents Section Header */}
-      <div className="flex items-center justify-between py-2 border-b border-border">
+      <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
         <div className="flex items-center gap-3">
           <button
             onClick={handleSelectAll}
@@ -266,22 +266,22 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
               <Square className="h-4 w-4" />
             )}
           </button>
-          <h2 className="text-sm font-medium text-foreground">
+          <h2 className="text-sm font-medium text-gray-900 dark:text-white">
             All documents
-            <span className="ml-2 text-xs font-light text-muted-foreground">({stats?.totalDocuments || 0})</span>
+            <span className="ml-2 text-xs font-light text-gray-400">({stats?.totalDocuments || 0})</span>
           </h2>
         </div>
 
         {/* Bulk Actions - Show when items are selected */}
         {selectedIds.size > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs font-light text-muted-foreground">
+            <span className="text-xs font-light text-gray-500">
               {selectedIds.size} selected
             </span>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-primary hover:bg-primary/10"
+              className="h-7 px-2 text-xs text-gray-600 hover:text-[#1269d6] hover:bg-[#1269d6]/10"
               onClick={handleBulkDownload}
               disabled={isDownloading}
             >
@@ -291,7 +291,7 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              className="h-7 px-2 text-xs text-gray-600 hover:text-red-500 hover:bg-red-50"
               onClick={handleBulkDelete}
               disabled={isDeleting}
             >
@@ -307,9 +307,9 @@ export const DocumentList = ({ projectId, workspaceId }: DocumentListProps) => {
       {/* Document List - Table-like view inspired by screenshot */}
       {filteredDocuments.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <FolderOpen className="h-10 w-10 text-muted-foreground/30 mb-3" />
-          <h3 className="text-sm font-medium text-foreground">No documents found</h3>
-          <p className="text-xs font-light text-muted-foreground mt-1 mb-4">
+          <FolderOpen className="h-10 w-10 text-gray-200 mb-3" />
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">No documents found</h3>
+          <p className="text-xs font-light text-gray-500 mt-1 mb-4">
             {searchQuery
               ? "Try adjusting your search query"
               : "Upload your first document to get started"}

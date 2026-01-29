@@ -831,7 +831,7 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                       ref={provided.innerRef}
                                       {...provided.draggableProps}
                                       className={`px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors group ${snapshot.isDragging ? "shadow-lg rounded-lg border border-border bg-card" : ""
-                                        } ${selectedItemIds.has(item.$id) ? "bg-primary/10 hover:bg-primary/15" : ""}`}
+                                        } ${selectedItemIds.has(item.$id) ? "bg-blue-50 hover:bg-blue-50" : ""}`}
                                       onClick={() => handleWorkItemClick(item)}
                                     >
                                       <div className="flex items-center gap-4">
@@ -1153,20 +1153,20 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-3 text-xs">
                       <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-muted-foreground/50"></div>
-                        <span className="text-muted-foreground">
+                        <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                        <span className="text-gray-600">
                           {getStatusCounts(backlogItems).todo}
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                        <span className="text-muted-foreground">
+                        <span className="text-gray-600">
                           {getStatusCounts(backlogItems).inProgress}
                         </span>
                       </div>
                       <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        <span className="text-muted-foreground">
+                        <span className="text-gray-600">
                           {getStatusCounts(backlogItems).done}
                         </span>
                       </div>
@@ -1190,7 +1190,7 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                   >
                     {backlogItems.length === 0 ? (
                       <div className="p-8 text-center">
-                        <p className="text-sm text-muted-foreground">No items in backlog.</p>
+                        <p className="text-sm text-gray-500">No items in backlog.</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
@@ -1223,12 +1223,12 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                       className="flex items-center justify-center cursor-grab active:cursor-grabbing"
                                       onClick={(e) => e.stopPropagation()}
                                     >
-                                      <GripVertical className="size-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                                      <GripVertical className="size-4 text-gray-400 hover:text-gray-600" />
                                     </div>
 
                                     <WorkItemIcon type={item.type} project={project ?? undefined} className="size-4 flex-shrink-0" />
 
-                                    <span className="font-mono text-xs text-muted-foreground w-20 flex-shrink-0">{item.key}</span>
+                                    <span className="font-mono text-xs text-gray-500 w-20 flex-shrink-0">{item.key}</span>
                                   </div>
 
                                   {editingWorkItemId === item.$id ? (
@@ -1449,7 +1449,7 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                 <span className="text-xs capitalize">
                                   {newItemType.toLowerCase()}
                                 </span>
-                                <ChevronDown className="size-3 text-muted-foreground/50" />
+                                <ChevronDown className="size-3 text-gray-400" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start">
@@ -1504,7 +1504,7 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                       can(PERMISSIONS.WORKITEM_CREATE) && (
                         <button
                           onClick={() => setIsCreatingInBacklog(true)}
-                          className="w-full px-4 py-3 text-left text-sm text-muted-foreground hover:bg-muted transition-colors flex items-center gap-2 border-t border-border"
+                          className="w-full px-4 py-3 text-left text-sm text-gray-500 hover:bg-gray-50 transition-colors flex items-center gap-2 border-t border-gray-100"
                         >
                           <Plus className="size-4" />
                           Create work item

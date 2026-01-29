@@ -48,10 +48,10 @@ export const ProjectDocsClient = () => {
 
       {/* Quick Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-        <Card className="border-border bg-muted/30">
+        <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-blue-500" />
+              <BookOpen className="h-4 w-4 text-blue-600" />
               Product Requirements
             </CardTitle>
           </CardHeader>
@@ -62,10 +62,10 @@ export const ProjectDocsClient = () => {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-muted/30">
+        <Card className="border-purple-200 bg-purple-50/50 dark:bg-purple-950/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <FolderOpen className="h-4 w-4 text-purple-500" />
+              <FolderOpen className="h-4 w-4 text-purple-600" />
               Functional Specs
             </CardTitle>
           </CardHeader>
@@ -76,10 +76,10 @@ export const ProjectDocsClient = () => {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-muted/30">
+        <Card className="border-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-indigo-500" />
+              <Sparkles className="h-4 w-4 text-indigo-600" />
               AI Integration
             </CardTitle>
           </CardHeader>

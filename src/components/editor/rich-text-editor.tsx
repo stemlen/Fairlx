@@ -61,7 +61,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
   ) => {
     const isFocusedRef = useRef(false);
     const lastContentRef = useRef(content);
-
+    
     const editor = useEditor({
       extensions: [
         StarterKit.configure({
@@ -128,7 +128,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
             class: "flex items-start gap-2",
           },
         }),
-        ...(workspaceId ? [createMentionExtension()] : []),
+        ...(workspaceId ? [createMentionExtension(workspaceId)] : []),
         ...(workspaceId && projectId
           ? [createSlashCommandExtension(workspaceId, projectId)]
           : []),
@@ -178,7 +178,7 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
       if (editor && !isFocusedRef.current) {
         const currentNormalized = normalizeForComparison(lastContentRef.current);
         const newNormalized = normalizeForComparison(content);
-
+        
         if (currentNormalized !== newNormalized) {
           editor.commands.setContent(content);
           lastContentRef.current = content;

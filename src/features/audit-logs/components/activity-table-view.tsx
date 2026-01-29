@@ -1,9 +1,9 @@
 import { format } from "date-fns";
-import {
+import { 
   Activity,
-  FileText,
-  FolderKanban,
-  Users,
+  FileText, 
+  FolderKanban, 
+  Users, 
   Clock,
   Paperclip,
   LayoutGrid,
@@ -71,7 +71,7 @@ const getActivityColor = (action: string) => {
     case "deleted":
       return "bg-red-100 text-red-700 border-red-300";
     default:
-      return "bg-muted text-muted-foreground border-border";
+      return "bg-gray-100 text-gray-700 border-gray-300";
   }
 };
 
@@ -81,7 +81,7 @@ interface ActivityTableViewProps {
 
 export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
   const { data: currentUser } = useCurrent();
-
+  
   if (!activities || activities.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -109,18 +109,18 @@ export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
           {activities.map((activity) => {
             const Icon = getActivityIcon(activity.type);
             const colorClass = getActivityColor(activity.action);
-
+            
             // Check if this activity was done by the current user
             const isCurrentUser = currentUser?.$id === activity.userId;
             const displayName = isCurrentUser ? "You" : (activity.userName || "Unknown User");
-
+            
             const initials = activity.userName
               ? activity.userName
-                .split(" ")
-                .map((n) => n[0])
-                .join("")
-                .toUpperCase()
-                .substring(0, 2)
+                  .split(" ")
+                  .map((n) => n[0])
+                  .join("")
+                  .toUpperCase()
+                  .substring(0, 2)
               : "??";
 
             return (
@@ -133,7 +133,7 @@ export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
                     </span>
                   </div>
                 </TableCell>
-
+                
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Avatar className="h-8 w-8 border-2 border-background shadow-sm">
@@ -156,14 +156,14 @@ export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
                     </div>
                   </div>
                 </TableCell>
-
+                
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Icon className="h-4 w-4 text-muted-foreground" />
                     <span className="text-xs capitalize">{activity.type}</span>
                   </div>
                 </TableCell>
-
+                
                 <TableCell>
                   <Badge
                     variant="outline"
@@ -172,7 +172,7 @@ export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
                     {activity.action}
                   </Badge>
                 </TableCell>
-
+                
                 <TableCell>
                   <div className="flex flex-col">
                     <span className="text-xs font-medium">
@@ -180,7 +180,7 @@ export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
                     </span>
                   </div>
                 </TableCell>
-
+                
                 <TableCell>
                   {activity.metadata?.status && typeof activity.metadata.status === 'string' ? (
                     <Badge variant="secondary" className="text-xs font-medium">
@@ -190,18 +190,19 @@ export const ActivityTableView = ({ activities }: ActivityTableViewProps) => {
                     <span className="text-xs text-muted-foreground">-</span>
                   )}
                 </TableCell>
-
+                
                 <TableCell>
                   {activity.metadata?.priority && typeof activity.metadata.priority === 'string' ? (
                     <Badge
                       variant="secondary"
-                      className={`text-xs font-medium ${activity.metadata.priority === "HIGH" ||
-                          activity.metadata.priority === "URGENT"
+                      className={`text-xs font-medium ${
+                        activity.metadata.priority === "HIGH" ||
+                        activity.metadata.priority === "URGENT"
                           ? "bg-red-100 text-red-700"
                           : activity.metadata.priority === "MEDIUM"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-muted text-muted-foreground"
-                        }`}
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-gray-100 text-gray-700"
+                      }`}
                     >
                       {String(activity.metadata.priority)}
                     </Badge>

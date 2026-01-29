@@ -39,19 +39,19 @@ interface WorkItemOptionsMenuProps {
 }
 
 const priorityConfig = {
-  [WorkItemPriority.LOW]: {
+  [WorkItemPriority.LOW]: { 
     label: "Low",
-    dotColor: "bg-muted-foreground/50",
+    dotColor: "bg-slate-400",
   },
-  [WorkItemPriority.MEDIUM]: {
+  [WorkItemPriority.MEDIUM]: { 
     label: "Medium",
     dotColor: "bg-amber-500",
   },
-  [WorkItemPriority.HIGH]: {
+  [WorkItemPriority.HIGH]: { 
     label: "High",
     dotColor: "bg-orange-500",
   },
-  [WorkItemPriority.URGENT]: {
+  [WorkItemPriority.URGENT]: { 
     label: "Urgent",
     dotColor: "bg-red-500",
   },
@@ -120,21 +120,21 @@ export const WorkItemOptionsMenu = ({
       <DeleteDialog />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
+          <Button 
+            variant="ghost" 
             size="sm"
-            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 hover:bg-muted transition-opacity"
+            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 hover:bg-slate-100 dark:hover:bg-slate-700 transition-opacity"
           >
-            <MoreHorizontal className="size-3.5 text-muted-foreground" />
+            <MoreHorizontal className="size-3.5 text-slate-500" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem onClick={handleCopyLink} className="text-xs py-1.5 cursor-pointer">
-            <Link2 className="size-3.5 mr-2 text-muted-foreground" />
+            <Link2 className="size-3.5 mr-2 text-slate-500" />
             Copy Link
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleCopyKey} className="text-xs py-1.5 cursor-pointer">
-            <Hash className="size-3.5 mr-2 text-muted-foreground" />
+            <Hash className="size-3.5 mr-2 text-slate-500" />
             Copy Key
           </DropdownMenuItem>
           <DropdownMenuSeparator className="my-1" />
@@ -142,7 +142,7 @@ export const WorkItemOptionsMenu = ({
             <Flag
               className={cn(
                 "size-3.5 mr-2",
-                workItem.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"
+                workItem.flagged ? "fill-red-500 text-red-500" : "text-slate-500"
               )}
             />
             {workItem.flagged ? "Remove Flag" : "Add Flag"}
@@ -150,7 +150,7 @@ export const WorkItemOptionsMenu = ({
           <DropdownMenuSeparator className="my-1" />
           {!hideAssignAssignee && (
             <DropdownMenuItem onClick={onAssignAssignee} className="text-xs py-1.5 cursor-pointer">
-              <Users className="size-3.5 mr-2 text-muted-foreground" />
+              <Users className="size-3.5 mr-2 text-slate-500" />
               Assign Members
             </DropdownMenuItem>
           )}
@@ -167,7 +167,7 @@ export const WorkItemOptionsMenu = ({
                   disabled={isUpdating}
                   className={cn(
                     "text-xs py-1.5 cursor-pointer",
-                    workItem.priority === priority && "bg-muted"
+                    workItem.priority === priority && "bg-slate-50 dark:bg-slate-800"
                   )}
                 >
                   <div className={cn("size-2 rounded-full mr-2", config.dotColor)} />
@@ -181,12 +181,12 @@ export const WorkItemOptionsMenu = ({
             Link to Epic
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onEditStoryPoints} className="text-xs py-1.5 cursor-pointer">
-            <Hash className="size-3.5 mr-2 text-muted-foreground" />
+            <Hash className="size-3.5 mr-2 text-slate-500" />
             Edit Points
           </DropdownMenuItem>
           <DropdownMenuSeparator className="my-1" />
           <DropdownMenuItem onClick={onSplit} className="text-xs py-1.5 cursor-pointer">
-            <GitBranch className="size-3.5 mr-2 text-muted-foreground" />
+            <GitBranch className="size-3.5 mr-2 text-slate-500" />
             Split Item
           </DropdownMenuItem>
           <DropdownMenuSeparator className="my-1" />

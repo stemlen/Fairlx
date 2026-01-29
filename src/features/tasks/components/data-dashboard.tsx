@@ -365,7 +365,7 @@ export const DataDashboard = ({ tasks = [] }: DataDashboardProps) => {
                   </div>
                 </>
               ) : (
-                <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">
+                <div className="h-[200px] flex items-center justify-center text-sm text-slate-500 dark:text-slate-400">
                   No task data available yet
                 </div>
               )}
@@ -423,23 +423,23 @@ export const DataDashboard = ({ tasks = [] }: DataDashboardProps) => {
                     </div>
                     <div className="col-span-2">
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${task.status === "Completed"
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-                        : task.status === "In Progress"
-                          ? "bg-yellow-100 text-amber-600 dark:bg-yellow-900/30 dark:text-amber-200"
-                          : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                          : task.status === "In Progress"
+                            ? "bg-yellow-100 text-amber-600 dark:bg-yellow-900/30 dark:text-amber-200"
+                            : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
                         }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${task.status === "Completed" ? "bg-emerald-600" :
-                          task.status === "In Progress" ? "bg-amber-600" : "bg-slate-400"
+                            task.status === "In Progress" ? "bg-amber-600" : "bg-slate-400"
                           }`} />
                         {task.status}
                       </span>
                     </div>
                     <div className="col-span-2">
                       <span className={`text-xs font-medium px-2 py-1 rounded ${task.priority === "URGENT" || task.priority === "HIGH"
-                        ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200"
-                        : task.priority === "MEDIUM"
-                          ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-700 dark:text-yellow-100"
-                          : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                          ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200"
+                          : task.priority === "MEDIUM"
+                            ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-700 dark:text-yellow-100"
+                            : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
                         }`}>
                         {task.priority}
                       </span>
@@ -447,7 +447,7 @@ export const DataDashboard = ({ tasks = [] }: DataDashboardProps) => {
                   </div>
                 ))
               ) : (
-                <div className="py-8 text-center text-sm text-muted-foreground">
+                <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                   No tasks yet. Create your first task to get started.
                 </div>
               )}
@@ -483,9 +483,9 @@ export const DataDashboard = ({ tasks = [] }: DataDashboardProps) => {
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <Clock className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No upcoming deadlines</p>
-                  <p className="text-xs text-muted-foreground">You&apos;re all caught up!</p>
+                  <Clock className="h-8 w-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No upcoming deadlines</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">You&apos;re all caught up!</p>
                 </div>
               )}
             </Card>

@@ -157,7 +157,7 @@ export function useSocketNotifications({
             socket.emit("auth:connect", { userId });
         };
 
-        const handleDisconnect = () => {
+        const handleDisconnect = (_reason: string) => {
             setIsConnected(false);
             setIsAuthenticated(false);
 
@@ -172,7 +172,7 @@ export function useSocketNotifications({
         };
 
         // Auth handlers
-        const handleAuthSuccess = () => {
+        const handleAuthSuccess = (_data: SocketEventMap["auth:success"]) => {
             setIsAuthenticated(true);
         };
 

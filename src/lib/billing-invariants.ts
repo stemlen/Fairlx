@@ -512,6 +512,7 @@ export async function runCriticalInvariantChecks(
 
         let violationCount = 0;
         for (const account of suspendedAccounts.documents) {
+            const _accountData = account as unknown as BillingAccount;
             // Check for usage events since suspension (approximate check)
             const recentEvents = await databases.listDocuments(
                 DATABASE_ID,

@@ -46,7 +46,7 @@ const getActionColor = (action: string) => {
     case "deleted":
       return "text-red-600";
     default:
-      return "text-muted-foreground";
+      return "text-gray-600";
   }
 };
 

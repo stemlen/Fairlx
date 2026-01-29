@@ -417,7 +417,7 @@ export const WorkspaceIdClient = () => {
                       </RechartsBarChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                    <div className="h-full flex items-center justify-center text-sm text-slate-500 dark:text-slate-400">
                       No task data available yet
                     </div>
                   )}
@@ -459,7 +459,7 @@ export const WorkspaceIdClient = () => {
                 </div>
 
                 {/* Progress Bar Visualization */}
-                <div className="h-3 flex rounded-full overflow-hidden bg-muted mb-6">
+                <div className="h-3 flex rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 mb-6">
                   <div
                     className="bg-emerald-600 transition-all"
                     style={{ width: `${(completedTasks / Math.max(totalTasks, 1)) * 100}%` }}
@@ -578,7 +578,7 @@ export const WorkspaceIdClient = () => {
                     </Link>
                   ))
                 ) : (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
+                  <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                     No tasks yet. Create your first task to get started.
                   </div>
                 )}
@@ -657,7 +657,7 @@ export const WorkspaceIdClient = () => {
               ) : (
                 <div className="text-center py-8">
                   <Clock className="h-8 w-8 text-muted/50 dark:text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No upcoming deadlines</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No upcoming deadlines</p>
                 </div>
               )}
             </Card>
@@ -715,7 +715,7 @@ export const WorkspaceIdClient = () => {
                 {projects.total === 0 && (
                   <div className="text-center py-8">
                     <FolderKanban className="h-8 w-8 text-muted/50 dark:text-muted-foreground/30 mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No projects yet</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">No projects yet</p>
                   </div>
                 )}
               </div>
@@ -802,7 +802,7 @@ export const WorkspaceIdClient = () => {
                   )
                 })
               ) : (
-                <div className="text-sm text-center text-muted-foreground py-8">
+                <div className="text-sm text-center text-slate-500 dark:text-slate-400 py-8">
                   No assigned tasks yet
                 </div>
               )}
@@ -874,7 +874,7 @@ export const WorkspaceIdClient = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">{contributor.completed}</p>
-                      <p className="text-xs text-muted-foreground">/{contributor.total}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">/{contributor.total}</p>
                     </div>
                   </div>
                 ))}
@@ -882,7 +882,7 @@ export const WorkspaceIdClient = () => {
             ) : (
               <div className="h-[200px] flex flex-col items-center justify-center text-center">
                 <TrendingUp className="h-8 w-8 text-muted/50 dark:text-muted-foreground/30 mb-2" />
-                <p className="text-sm text-muted-foreground">No completed tasks yet</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">No completed tasks yet</p>
               </div>
             )}
           </Card>

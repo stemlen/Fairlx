@@ -340,7 +340,7 @@ export function OrganizationBillingSettings({
                         )}
 
                         {/* Billing Timeline - Item 4.6 */}
-                        <div className="rounded-lg border border-border p-5 bg-muted/50 relative overflow-hidden">
+                        <div className="rounded-lg border p-5 bg-blue-50/50 dark:bg-blue-950/20 relative overflow-hidden">
                             <div className="absolute top-0 right-0 p-3 opacity-10">
                                 <Calendar className="h-16 w-16" />
                             </div>
@@ -352,14 +352,14 @@ export function OrganizationBillingSettings({
 
                             <div className="relative pl-6 space-y-6">
                                 {/* Vertical Line Connector */}
-                                <div className="absolute left-[7px] top-2 bottom-2 w-[2px] bg-primary/30" />
+                                <div className="absolute left-[7px] top-2 bottom-2 w-[2px] bg-blue-100 dark:bg-blue-900/50" />
 
                                 {/* Personal Phase */}
                                 <div className="relative">
-                                    <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-background bg-muted-foreground/50 z-10" />
+                                    <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-950 bg-slate-300 dark:bg-slate-700 z-10" />
                                     <div className="space-y-1">
                                         <div className="flex items-center justify-between">
-                                            <span className="font-medium text-foreground">Personal Account Usage</span>
+                                            <span className="font-medium text-slate-900 dark:text-slate-100">Personal Account Usage</span>
                                             <Badge variant="outline" className="text-[10px] h-4 px-1.5 uppercase tracking-wider font-bold bg-white/50 dark:bg-black/20">Historic</Badge>
                                         </div>
                                         <p className="text-xs text-muted-foreground leading-relaxed">
@@ -370,7 +370,7 @@ export function OrganizationBillingSettings({
 
                                 {/* Organization Phase */}
                                 <div className="relative">
-                                    <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-background bg-blue-600 z-10 shadow-[0_0_8px_rgba(37,99,235,0.4)]" />
+                                    <div className="absolute -left-[23px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-950 bg-blue-600 z-10 shadow-[0_0_8px_rgba(37,99,235,0.4)]" />
                                     <div className="space-y-1">
                                         <div className="flex items-center justify-between">
                                             <span className="font-medium text-blue-700 dark:text-blue-400">Organization Managed Billing</span>
@@ -386,7 +386,7 @@ export function OrganizationBillingSettings({
                                 </div>
                             </div>
 
-                            <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
+                            <div className="mt-4 pt-4 border-t border-blue-100 dark:border-blue-900/40 flex items-center justify-between">
                                 <p className="text-[11px] text-blue-600/70 dark:text-blue-400/70 italic">
                                     * The transition occurred when your account was converted to an organization.
                                 </p>
@@ -715,7 +715,7 @@ export function OrganizationBillingSettings({
                                                     className={cn(
                                                         "text-[10px] h-4 px-1.5 uppercase",
                                                         invoice.status === 'paid' && "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800",
-                                                        invoice.status === 'draft' && "bg-muted text-muted-foreground border-border"
+                                                        invoice.status === 'draft' && "bg-gray-100 dark:bg-gray-900/40 text-gray-700 dark:text-gray-400 border-gray-200 dark:border-gray-800"
                                                     )}
                                                 >
                                                     {invoice.status}
@@ -733,11 +733,11 @@ export function OrganizationBillingSettings({
                 </Card>
 
                 {/* Usage Dashboard Link */}
-                <Card className="bg-card border-blue-600/20">
+                <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 border-blue-200 dark:border-blue-800">
                     <CardContent className="py-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <h3 className="font-semibold text-foreground">View Detailed Usage</h3>
+                                <h3 className="font-semibold">View Detailed Usage</h3>
                                 <p className="text-sm text-muted-foreground mt-1">
                                     Monitor your organization&apos;s usage metrics and costs
                                 </p>

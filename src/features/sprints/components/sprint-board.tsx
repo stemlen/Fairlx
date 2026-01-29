@@ -75,7 +75,7 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
 
       {/* Tabs for different views */}
       <Tabs defaultValue="active" className="space-y-4">
-        <div className="flex items-center justify-between border-b border-border ">
+        <div className="flex items-center justify-between border-b border-slate-200 ">
           <TabsList className="bg-transparent p-0 h-auto gap-0">
             <TabsTrigger
               value="active"
@@ -146,7 +146,7 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-xl bg-muted/30">
+            <div className="flex flex-col items-center justify-center py-16 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50/50 dark:bg-slate-800/20">
               <div className="p-3 rounded-full bg-blue-50 dark:bg-blue-950/30 mb-3">
                 <Zap className="size-6 text-blue-500" />
               </div>
@@ -184,9 +184,9 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-xl bg-muted/30">
-              <div className="p-3 rounded-full bg-muted mb-3">
-                <Clock className="size-6 text-muted-foreground" />
+            <div className="flex flex-col items-center justify-center py-16 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50/50 dark:bg-slate-800/20">
+              <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-800 mb-3">
+                <Clock className="size-6 text-slate-400" />
               </div>
               <h3 className="text-sm font-medium text-foreground mb-1">No Planned Sprints</h3>
               <p className="text-xs text-muted-foreground mb-4 text-center max-w-xs">
@@ -222,7 +222,7 @@ export const SprintBoard = ({ workspaceId, projectId }: SprintBoardProps) => {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-xl bg-muted/30">
+            <div className="flex flex-col items-center justify-center py-16 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50/50 dark:bg-slate-800/20">
               <div className="p-3 rounded-full bg-green-50 dark:bg-green-950/30 mb-3">
                 <CheckCircle2 className="size-6 text-green-500" />
               </div>

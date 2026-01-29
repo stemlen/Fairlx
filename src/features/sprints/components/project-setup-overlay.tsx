@@ -1,7 +1,7 @@
 "use client";
 
-import {
-  ArrowRight,
+import { 
+  ArrowRight, 
   Calendar as CalendarIcon,
   LayoutList
 } from "lucide-react";
@@ -28,7 +28,7 @@ export const ProjectSetupOverlay = ({
   children,
 }: ProjectSetupOverlayProps) => {
   const backlogUrl = `/workspaces/${workspaceId}/projects/${projectId}/backlog`;
-
+  
   // If there's an active sprint, show the view normally
   if (hasActiveSprint) {
     return <>{children}</>;
@@ -41,21 +41,21 @@ export const ProjectSetupOverlay = ({
       <div className="absolute inset-0 blur-sm opacity-30 pointer-events-none overflow-hidden">
         {children}
       </div>
-
+      
       {/* Simple message overlay */}
       <div className="relative z-10 flex flex-col items-center justify-center py-20 px-4">
-        <div className="inline-flex items-center justify-center size-14 bg-muted rounded-full mb-5">
-          <CalendarIcon className="size-7 text-muted-foreground" />
+        <div className="inline-flex items-center justify-center size-14 bg-gray-100 dark:bg-gray-800 rounded-full mb-5">
+          <CalendarIcon className="size-7 text-gray-500" />
         </div>
-
-        <h3 className="text-lg font-semibold text-foreground mb-2">
+        
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
           No active sprint
         </h3>
-
+        
         <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
           Go to Backlog to create work items and start a sprint
         </p>
-
+        
         <Link href={backlogUrl}>
           <Button className="gap-2">
             <LayoutList className="size-4" />

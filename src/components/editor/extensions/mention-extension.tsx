@@ -140,7 +140,7 @@ export const setMentionMembers = (
   cachedMembers = members;
 };
 
-export const createMentionExtension = () => {
+export const createMentionExtension = (_workspaceId: string) => {
   return Mention.configure({
     HTMLAttributes: {
       class: "mention bg-primary/10 text-primary rounded px-1 py-0.5 font-medium",
