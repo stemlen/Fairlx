@@ -1,3 +1,5 @@
+// Usage : node ./scripts/ci/audit_env.js
+
 const fs = require('fs');
 
 const deployYml = fs.readFileSync('.github/workflows/deploy.yml', 'utf8');

@@ -88,6 +88,11 @@ function generateTransactionSignature(fields: {
  * Reads the wallet, checks version matches expected, updates balance
  * and increments version atomically. If version mismatch, throws to
  * trigger retry by caller.
+ * 
+ * NOTE: Appwrite doesn't support conditional updates (`updateDocument` with `where version = X`).
+ * So we do a read-after-write check. While the distributed lock in `deductFromWallet` 
+ * serializes concurrent writes for the *same* operation, multiple *different* operations 
+ * (like two different usage events) for the same wallet can still compete.
  */
 async function updateWalletWithVersion(
     databases: Databases,
@@ -95,9 +100,6 @@ async function updateWalletWithVersion(
     expectedVersion: number,
     updates: Record<string, unknown>
 ): Promise<void> {
-    // Appwrite doesn't support conditional updates, so we do a read-after-write check.
-    // The distributed lock already serialises concurrent writes, so this is a
-    // secondary safety net against bugs or lock failures.
     await databases.updateDocument(
         DATABASE_ID,
         WALLETS_ID,
@@ -412,8 +414,49 @@ export async function topUpWallet(
  * IDEMPOTENT: Uses idempotencyKey to prevent duplicate deductions.
  * Uses Distributed Lock to prevent race conditions (Double Deduction).
  * Rate-limited to prevent abuse.
+ * 
+ * RETRY LOGIC: Handles "Optimistic lock failure" when multiple processes 
+ * modify the wallet concurrently by retrying up to 5 times.
  */
 export async function deductFromWallet(
+    databases: Databases,
+    walletId: string,
+    amount: number,
+    options: {
+        referenceId: string;
+        idempotencyKey: string;
+        description?: string;
+    }
+): Promise<{ success: boolean; transaction?: WalletTransaction; error?: string }> {
+    const MAX_RETRIES = 5;
+    let attempts = 0;
+
+    while (attempts < MAX_RETRIES) {
+        attempts++;
+        try {
+            return await deductFromWalletInternal(databases, walletId, amount, options);
+        } catch (error) {
+            // Check if error is an optimistic lock failure
+            const isOptimisticLockError = error instanceof Error && error.message.includes("Optimistic lock failure");
+            
+            if (isOptimisticLockError && attempts < MAX_RETRIES) {
+                // Wait briefly before retrying (exponential backoff: 50ms, 100ms, 200ms...)
+                const delay = Math.pow(2, attempts - 1) * 50;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+            
+            throw error;
+        }
+    }
+
+    return { success: false, error: "max_retries_exceeded: Concurrent modification conflict" };
+}
+
+/**
+ * Internal logic for wallet deduction (wrapped by retry logic in public export)
+ */
+async function deductFromWalletInternal(
     databases: Databases,
     walletId: string,
     amount: number,
@@ -451,13 +494,14 @@ export async function deductFromWallet(
 
         // 3. Check wallet status
         if (wallet.status === WalletStatus.FROZEN || wallet.status === WalletStatus.CLOSED) {
-            await releaseProcessingLock(databases, eventKey, "wallet");
+            // No need to release lock here, we keep it as "processed" record
             return { success: false, error: `wallet_${wallet.status}` };
         }
 
         // 4. Balance check (available = balance - lockedBalance)
         const availableBalance = wallet.balance - wallet.lockedBalance;
         if (availableBalance < amount) {
+            // If we fail due to balance, we release the lock to allow retry if user tops up
             await releaseProcessingLock(databases, eventKey, "wallet");
             return {
                 success: false,
@@ -510,6 +554,7 @@ export async function deductFromWallet(
         return { success: true, transaction };
 
     } catch (error) {
+        // RELEASE distributed lock so we can retry the entire process (which including re-reading wallet doc with latest version)
         await releaseProcessingLock(databases, eventKey, "wallet");
         throw error;
     }

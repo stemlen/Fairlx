@@ -1214,7 +1214,7 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                       itemCount={sprintItemIds.length}
                                     />
                                     <div className="w-4" />
-                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-4">Type</span>
+                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-12 text-center">Type</span>
                                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-20">Key</span>
                                   </div>
                                   <span className="flex-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Title</span>
@@ -1252,13 +1252,15 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                           {/* Drag Handle - separate from checkbox */}
                                           <div
                                             {...provided.dragHandleProps}
-                                            className="flex items-center justify-center cursor-grab active:cursor-grabbing"
+                                            className="flex items-center justify-center cursor-grab active:cursor-grabbing w-4"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            <GripVertical className="size-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                                            <GripVertical className="size-4 text-muted-foreground/50 hover:text-muted-foreground flex-shrink-0" />
                                           </div>
 
-                                          <WorkItemIcon type={item.type} project={project ?? undefined} className="size-4 flex-shrink-0" />
+                                          <div className="w-12 flex justify-center flex-shrink-0">
+                                            <WorkItemIcon type={item.type} project={project ?? undefined} className="size-4" />
+                                          </div>
 
                                           <span className="font-mono text-xs text-muted-foreground w-20 flex-shrink-0">{item.key}</span>
                                         </div>
@@ -1583,7 +1585,7 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                 itemCount={backlogItemIds.length}
                               />
                               <div className="w-4" />
-                              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-4">Type</span>
+                              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-12 text-center">Type</span>
                               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-20">Key</span>
                             </div>
                             <span className="flex-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Title</span>
@@ -1621,13 +1623,15 @@ export default function EnhancedBacklogScreen({ workspaceId, projectId }: Enhanc
                                     {/* Drag Handle - separate from checkbox */}
                                     <div
                                       {...provided.dragHandleProps}
-                                      className="flex items-center justify-center cursor-grab active:cursor-grabbing"
+                                      className="flex items-center justify-center cursor-grab active:cursor-grabbing w-4"
                                       onClick={(e) => e.stopPropagation()}
                                     >
-                                      <GripVertical className="size-4 text-muted-foreground/50 hover:text-muted-foreground" />
+                                      <GripVertical className="size-4 text-muted-foreground/50 hover:text-muted-foreground flex-shrink-0" />
                                     </div>
 
-                                    <WorkItemIcon type={item.type} project={project ?? undefined} className="size-4 flex-shrink-0" />
+                                    <div className="w-12 flex justify-center flex-shrink-0">
+                                      <WorkItemIcon type={item.type} project={project ?? undefined} className="size-4" />
+                                    </div>
 
                                     <span className="font-mono text-xs text-muted-foreground w-20 flex-shrink-0">{item.key}</span>
                                   </div>

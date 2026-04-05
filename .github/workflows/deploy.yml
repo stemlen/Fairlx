@@ -165,7 +165,7 @@ jobs:
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ vars.DO_HOST }}
-          username: deployer
+          username: root
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           port: 22
           source: "."
@@ -176,7 +176,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ vars.DO_HOST }}
-          username: deployer
+          username: root
           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           port: 22
           timeout: 30m
