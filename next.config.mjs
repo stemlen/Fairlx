@@ -19,6 +19,15 @@ const nextConfig = {
       bodySizeLimit: '20mb',
     },
   },
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.output = {
+        ...config.output,
+        chunkLoadTimeout: 300_000,
+      };
+    }
+    return config;
+  },
   images: {
     minimumCacheTTL: 3600, // Cache optimized images for 1 hour
     formats: ['image/avif', 'image/webp'],

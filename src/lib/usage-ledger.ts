@@ -297,6 +297,7 @@ export async function writeUsageEvent(
                             referenceId: event.$id,
                             idempotencyKey: `deduct:${params.idempotencyKey}`,
                             description: `Instant Charge: ${params.resourceType.toUpperCase()}${params.metadata?.model ? ` (${params.metadata.model})` : ""}`,
+                            skipRateLimit: true,
                         });
                     }
                 } catch (err) {

@@ -38,6 +38,7 @@ export const useLinkRepository = () => {
       queryClient.invalidateQueries({
         queryKey: GITHUB_INTEGRATION_QUERY_KEYS.documentation(data.projectId),
       });
+      queryClient.invalidateQueries({ queryKey: ["agent-context"] });
     },
     onError: (error) => {
       toast.error(error.message || "Failed to link repository");

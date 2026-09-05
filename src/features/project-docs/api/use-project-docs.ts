@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { client } from "@/lib/rpc";
 import { useTourActive, DUMMY_DOCUMENTS } from "@/lib/tour-dummy-data";
 import { DocumentCategory, PopulatedProjectDocument } from "../types";
+import type { DownloadDocumentFormat } from "../lib/document-file";
 
 // Query keys
 export const PROJECT_DOCS_QUERY_KEYS = {
@@ -288,26 +289,51 @@ export const useDeleteProjectDocument = () => {
 
 // Download document helper
 export const useDownloadDocument = () => {
-  return useMutation<void, Error, { documentId: string; workspaceId: string; fileName: string }>({
-    mutationFn: async ({ documentId, workspaceId, fileName }) => {
+  return useMutation<
+    void,
+    Error,
+    { documentId: string; workspaceId: string; fileName: string; format?: DownloadDocumentFormat; silent?: boolean }
+  >({
+    mutationFn: async ({ documentId, workspaceId, fileName, format }) => {
+      const params = new URLSearchParams({ workspaceId });
+      if (format) params.set("format", format);
       const response = await fetch(
-        `/api/project-docs/${documentId}/download?workspaceId=${workspaceId}`,
-        { credentials: "include" }
+        `/api/project-docs/${documentId}/download?${params.toString()}`,
+        { credentials: "include" },
       );
 
+      const contentType = response.headers.get("content-type") || "";
       if (!response.ok) {
+        if (contentType.includes("application/json")) {
+          const errorData = (await response.json()) as { error?: string };
+          throw new Error(errorData.error || "Failed to download document");
+        }
         throw new Error("Failed to download document");
       }
 
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      if (contentType.includes("application/json")) {
+        try {
+          const parsed = JSON.parse(await blob.text()) as { error?: string };
+          throw new Error(parsed.error || "Failed to download document");
+        } catch (error) {
+          throw error instanceof Error ? error : new Error("Failed to download document");
+        }
+      }
+
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = objectUrl;
+      const disposition = response.headers.get("content-disposition") || "";
+      const named = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/.exec(disposition);
+      link.download = decodeURIComponent(named?.[1] || named?.[2] || fileName);
+      window.document.body.appendChild(link);
+      link.click();
+      window.document.body.removeChild(link);
+      window.URL.revokeObjectURL(objectUrl);
+    },
+    onSuccess: (_, variables) => {
+      if (!variables.silent) toast.success("Document downloaded");
     },
     onError: (error) => {
       toast.error(error.message || "Failed to download document");

@@ -32,10 +32,20 @@ describe("compileFairlxListIntent", () => {
     ).toBeNull();
   });
 
-  it("lists the project Backlog, not the personal backlog, for backlog deletes", () => {
-    expect(compileFairlxListIntent("delete all work items in the backlog", { projectId: "p1" })).toEqual({
+  it("lists the project Backlog when asked to show it", () => {
+    expect(compileFairlxListIntent("list all work items in the backlog", { projectId: "p1" })).toEqual({
       tool: "fairlx_work_item_list",
       args: { projectId: "p1", backlog: true },
     });
+  });
+
+  it("does not auto-list when assigning or unassigning", () => {
+    expect(
+      compileFairlxListIntent(
+        "remove all assignees for all work items in all sprints and assign all workitems in sprint 1 to Fogef only",
+        { projectId: "p1" },
+      ),
+    ).toBeNull();
+    expect(compileFairlxListIntent("delete all work items in the backlog", { projectId: "p1" })).toBeNull();
   });
 });

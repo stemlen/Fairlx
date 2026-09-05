@@ -14,6 +14,7 @@ export default defineConfig({
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
+            '@fairlx/mcp-server/markdown': path.resolve(__dirname, './packages/fairlx-mcp/src/lib/project-doc-markdown.ts'),
             '@fairlx/mcp-server': path.resolve(__dirname, './packages/fairlx-mcp/src/index.ts'),
             '@fairlx/multi-agent': path.resolve(__dirname, './packages/fairlx-multi-agent/src/index.ts'),
         },

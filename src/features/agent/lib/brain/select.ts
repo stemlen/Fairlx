@@ -5,8 +5,6 @@ export type SelectableTool = {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 };
 
-export const SELECT_MAX_TOOLS = 28;
-
 const ALWAYS = [
   "delegate_agent",
   "request_capability",
@@ -15,6 +13,31 @@ const ALWAYS = [
   "mcp_call",
   "mcp_list",
 ];
+
+/** Board tools the in-app agent must always see so it does not fall back to native list_* APIs. */
+export const CORE_FAIRLX_TOOLS = [
+  "fairlx_work_item_list",
+  "fairlx_work_item_get",
+  "fairlx_work_item_create",
+  "fairlx_work_item_update",
+  "fairlx_work_item_bulk_update",
+  "fairlx_sprint_list",
+  "fairlx_sprint_get",
+  "fairlx_comment_list",
+  "fairlx_comment_add",
+  "fairlx_workspace_members_list",
+  "fairlx_project_get",
+  "fairlx_project_members_list",
+];
+
+export const SELECT_MAX_TOOLS = 40;
+
+const DOC_RESEARCH_QUERY =
+  /\b(document(?:ation)?s?|prd|frd|srs|brd|user guide|api docs?|write(?: the)? docs?|researched prd|product requirements)\b/i;
+
+export function isDocResearchQuery(query: string): boolean {
+  return DOC_RESEARCH_QUERY.test(query);
+}
 
 type Bucket = { pattern: RegExp; names: string[] };
 
@@ -30,13 +53,14 @@ const BUCKETS: Bucket[] = [
     ],
   },
   {
-    pattern: /\b(organiz(ation|e)|org name|company name|rename the org|org members?)\b/i,
+    pattern: /\b(organiz(ation|e)|org name|company name|rename the org|org members?|org bill)\b/i,
     names: [
       "fairlx_organization_get",
       "fairlx_organization_list",
       "fairlx_organization_workspaces_list",
       "fairlx_organization_update",
       "fairlx_organization_members_list",
+      "fairlx_usage_summary",
     ],
   },
   {
@@ -51,7 +75,7 @@ const BUCKETS: Bucket[] = [
       "fairlx_project_team_create",
       "fairlx_project_member_add",
       "fairlx_project_team_member_add",
-      "fairlx_project_teams_list",
+      "fairlx_project_team_list",
       "fairlx_work_item_update",
       "fairlx_work_item_bulk_update",
       "fairlx_work_item_list",
@@ -96,8 +120,34 @@ const BUCKETS: Bucket[] = [
     ],
   },
   {
+    pattern: /\b(document(?:ation)?s?|prd|frd|srs|brd|user guide|api docs?|write(?: the)? docs?)\b/i,
+    names: [
+      "fairlx_doc_list",
+      "fairlx_doc_get",
+      "fairlx_doc_create",
+      "fairlx_doc_update",
+      "fairlx_work_item_list",
+      "fairlx_sprint_list",
+      "github_list_files",
+      "github_read_file",
+      "search_harness",
+      "web_search",
+      "web_fetch",
+      "file_search",
+      "code_inspect",
+    ],
+  },
+  {
     pattern: /\b(search|find|look up|web|docs?)\b/i,
-    names: ["web_search", "file_search", "code_inspect", "search_harness", "personal_read"],
+    names: ["web_search", "web_fetch", "file_search", "code_inspect", "search_harness", "personal_read", "fairlx_doc_list", "fairlx_doc_get"],
+  },
+  {
+    pattern: /\b(bill(?:ing)?|invoice|usage|spend|wallet|credits?|how much (did|have we)|grok bill|luna bill)\b/i,
+    names: ["fairlx_usage_summary", "fairlx_organization_get"],
+  },
+  {
+    pattern: /\b(notification|inbox|mentions?)\b/i,
+    names: ["fairlx_notification_list", "fairlx_notification_mark_read"],
   },
 ];
 
@@ -114,6 +164,10 @@ const FALLBACK = [
 
 function scoreName(name: string, query: string, wanted: Set<string>): number {
   if (ALWAYS.includes(name)) return 100;
+  if (CORE_FAIRLX_TOOLS.includes(name)) {
+    if (name === "fairlx_work_item_get" && !wanted.has(name)) return 0;
+    return 90;
+  }
   if (wanted.has(name)) return 80;
   const needle = query.toLowerCase();
   const hay = name.replace(/^fairlx_/, "").replaceAll("_", " ");
@@ -123,7 +177,10 @@ function scoreName(name: string, query: string, wanted: Set<string>): number {
 }
 
 export function wantedToolNames(query: string): Set<string> {
-  const wanted = new Set<string>(ALWAYS);
+  const wanted = new Set<string>([...ALWAYS, ...CORE_FAIRLX_TOOLS]);
+  if (isDocResearchQuery(query) && !/\b(work item|ticket|assign|bug|story)\b/i.test(query)) {
+    wanted.delete("fairlx_work_item_get");
+  }
   const sendMail = isSendMailIntent(query);
   const invite = isOrgInviteIntent(query);
   for (const bucket of BUCKETS) {
@@ -136,15 +193,22 @@ export function wantedToolNames(query: string): Set<string> {
       }
     }
   }
-  if (wanted.size <= ALWAYS.length) {
+  if (wanted.size <= ALWAYS.length + CORE_FAIRLX_TOOLS.length) {
     for (const name of FALLBACK) wanted.add(name);
   }
   return wanted;
 }
 
-export function selectToolsForTurn<T extends SelectableTool>(tools: T[], query: string): T[] {
+export function selectToolsForTurn<T extends SelectableTool>(
+  tools: T[],
+  query: string,
+  options?: { hasGithubRepo?: boolean },
+): T[] {
   if (!tools.length) return tools;
   const wanted = wantedToolNames(query);
+  const skipGithubRead =
+    options?.hasGithubRepo === false &&
+    !/\b(pr\b|pull request|commit|github|repo|repository|edit the code|patch)\b/i.test(query);
   const ranked = [...tools].sort(
     (a, b) => scoreName(b.function.name, query, wanted) - scoreName(a.function.name, query, wanted),
   );
@@ -152,6 +216,8 @@ export function selectToolsForTurn<T extends SelectableTool>(tools: T[], query: 
   const seen = new Set<string>();
   for (const tool of ranked) {
     const name = tool.function.name;
+    if (skipGithubRead && /^(github_list_files|github_read_file|code_inspect)$/.test(name)) continue;
+    if (name === "fairlx_work_item_get" && !wanted.has(name)) continue;
     const keep = wanted.has(name) || ALWAYS.includes(name) || scoreName(name, query, wanted) >= 40;
     if (/personal_backlog/.test(name) && !/\bpersonal\b/i.test(query)) continue;
     if (!keep && picked.length >= 12) continue;
@@ -163,6 +229,8 @@ export function selectToolsForTurn<T extends SelectableTool>(tools: T[], query: 
   if (picked.length < 8) {
     for (const tool of tools) {
       if (picked.length >= SELECT_MAX_TOOLS) break;
+      if (skipGithubRead && /^(github_list_files|github_read_file|code_inspect)$/.test(tool.function.name)) continue;
+      if (tool.function.name === "fairlx_work_item_get" && !wanted.has(tool.function.name)) continue;
       if (/personal_backlog/.test(tool.function.name) && !/\bpersonal\b/i.test(query)) continue;
       if (seen.has(tool.function.name)) continue;
       seen.add(tool.function.name);

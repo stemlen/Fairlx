@@ -2,6 +2,8 @@ export type McpQuery =
   | { type: "equal"; field: string; value: string | string[] | number | boolean }
   | { type: "notEqual"; field: string; value: string | number | boolean }
   | { type: "isNull"; field: string }
+  | { type: "greaterThanEqual"; field: string; value: string | number }
+  | { type: "lessThan"; field: string; value: string | number }
   | { type: "limit"; value: number }
   | { type: "cursorAfter"; value: string }
   | { type: "orderDesc"; field: string }
@@ -81,6 +83,11 @@ export interface McpCollections {
   attachments: string;
   agentHarness?: string;
   agentRuns?: string;
+  departments?: string;
+  departmentPermissions?: string;
+  orgMemberDepartments?: string;
+  usageEvents?: string;
+  wallets?: string;
 }
 
 export interface McpTokenRecord {

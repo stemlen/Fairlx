@@ -1,6 +1,7 @@
 // Billing UI Components
 export { BillingWarningBanner } from "./billing-warning-banner";
 export { SuspensionScreen } from "./suspension-screen";
+export { WalletBillingBanner, WalletBalanceChip } from "./wallet-billing-alerts";
 export {
     BillingStatusTracker,
     useBillingStatusCookie,

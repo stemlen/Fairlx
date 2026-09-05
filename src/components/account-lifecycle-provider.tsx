@@ -1,10 +1,14 @@
 "use client";
 
 import React, { createContext, useContext, useMemo, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useGetAccountLifecycle, LifecycleRouting } from "@/features/auth/api/use-account-lifecycle";
 import { AccountLifecycleState } from "@/features/auth/types";
-import { AppTour } from "./app-tour";
+
+const AppTour = dynamic(() => import("./app-tour").then((mod) => mod.AppTour), {
+  ssr: false,
+});
 
 /**
  * Initial unresolved lifecycle state.

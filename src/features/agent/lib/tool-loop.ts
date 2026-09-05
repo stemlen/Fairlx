@@ -11,6 +11,7 @@ export function shouldForceAnswer(failStreak: number): boolean {
   return failStreak >= MAX_CONSECUTIVE_TOOL_FAILURES;
 }
 export const WORK_ITEM_LIST_TOOL = "fairlx_work_item_list";
+export const SPRINT_LIST_TOOL = "fairlx_sprint_list";
 
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
@@ -72,6 +73,12 @@ export type ListSliceState = {
 };
 
 export function listSliceKey(tool: string, args: Record<string, unknown>): string | null {
+  if (tool === SPRINT_LIST_TOOL) {
+    return JSON.stringify({
+      tool,
+      projectId: String(args.projectId ?? ""),
+    });
+  }
   if (tool !== WORK_ITEM_LIST_TOOL) return null;
   return JSON.stringify({
     tool,
@@ -79,6 +86,16 @@ export function listSliceKey(tool: string, args: Record<string, unknown>): strin
     sprintId: String(args.sprintId ?? ""),
     backlog: args.backlog === true || args.backlog === "true",
   });
+}
+
+export function canonicalizeToolCall(call: AgentToolCall): AgentToolCall {
+  const { tool, args } = unwrapListCall(call);
+  if (tool !== SPRINT_LIST_TOOL) return call;
+  const next: Record<string, unknown> = { ...args };
+  delete next.status;
+  if (!asCursor(next.cursorAfter)) delete next.cursorAfter;
+  if (typeof next.limit !== "number" || next.limit < 100) next.limit = 100;
+  return withListArgs(call, next);
 }
 
 function asCursor(value: unknown): string {
@@ -211,17 +228,45 @@ export function projectCachedWorkItemList(previous: string, args?: Record<string
   };
 }
 
+function sprintListSkipMessage(kind: "loaded" | "no_more" | "bad_cursor", previous?: string): string {
+  const previousPayload = previous ? compactPrevious(previous, LIST_PREVIOUS_MAX) : undefined;
+  if (kind === "loaded") {
+    return JSON.stringify({
+      repeated: true,
+      message:
+        "Sprints for this project are already loaded. Do not list sprints again (omit status; do not fan out ACTIVE/PLANNED/ALL). To unassign sprint items, call fairlx_work_item_bulk_update with clearAssignees: true. To assign a whole sprint, pass sprintId as the sprint name and assigneeIds.",
+      previous: previousPayload,
+    });
+  }
+  if (kind === "no_more") {
+    return JSON.stringify({
+      repeated: true,
+      hasMore: false,
+      nextCursor: null,
+      message: "No further sprint pages. Do not list sprints again.",
+      previous: previousPayload,
+    });
+  }
+  return JSON.stringify({
+    repeated: true,
+    message: "Invalid cursorAfter. Stop listing sprints and continue the task.",
+    previous: previousPayload,
+  });
+}
+
 export function listSliceSkipMessage(
   kind: "loaded" | "no_more" | "bad_cursor",
   previous?: string,
   args?: Record<string, unknown>,
+  tool = WORK_ITEM_LIST_TOOL,
 ): string {
+  if (tool === SPRINT_LIST_TOOL) return sprintListSkipMessage(kind, previous);
   const projected = previous ? projectCachedWorkItemList(previous, args) : undefined;
   if (kind === "loaded") {
     return JSON.stringify({
       repeated: true,
       message:
-        "This project's work items are already loaded. Do not list again. assignment.byAssignee is who the board shows — never treat other keys as assigned. location.backlogKeys is the project Backlog (not Unassigned). To assign a share of the backlog, call fairlx_work_item_bulk_update with assignPercent and assigneeIds (name or email). To parent stories under epics, call fairlx_work_item_bulk_update with assignEpics: true.",
+        "This project's work items are already loaded. Do not list again. assignment.byAssignee is who the board shows — never treat other keys as assigned. location.backlogKeys is the project Backlog (not Unassigned). To unassign sprint items, call fairlx_work_item_bulk_update with clearAssignees: true. To assign a whole sprint, pass sprintId (Sprint 1) and assigneeIds. To assign a share of the project, pass assignPercent and assigneeIds. To parent stories under epics, call it with assignEpics: true.",
       previous: projected,
     });
   }
@@ -231,7 +276,7 @@ export function listSliceSkipMessage(
       hasMore: false,
       nextCursor: null,
       message:
-        "No further pages. hasMore was false. If the task is to assign a share, call fairlx_work_item_bulk_update with assignPercent next. Do not list again.",
+        "No further pages. hasMore was false. If the task is to assign, call fairlx_work_item_bulk_update next. Do not list again.",
       previous: projected,
     });
   }
@@ -253,13 +298,13 @@ export function resolveListSliceCall(
   const cursor = asCursor(args.cursorAfter);
   const prior = cache.get(key);
   if (!cursor) {
-    if (prior) return { action: "skip", content: listSliceSkipMessage("loaded", prior.content, args) };
+    if (prior) return { action: "skip", content: listSliceSkipMessage("loaded", prior.content, args, tool) };
     return { action: "execute" };
   }
   if (!prior) return { action: "execute" };
-  if (!prior.hasMore) return { action: "skip", content: listSliceSkipMessage("no_more", prior.content) };
+  if (!prior.hasMore) return { action: "skip", content: listSliceSkipMessage("no_more", prior.content, undefined, tool) };
   if (cursor !== prior.nextCursor) {
-    return { action: "skip", content: listSliceSkipMessage("bad_cursor", prior.content) };
+    return { action: "skip", content: listSliceSkipMessage("bad_cursor", prior.content, undefined, tool) };
   }
   return { action: "execute" };
 }
@@ -275,12 +320,21 @@ function withListArgs(call: AgentToolCall, args: Record<string, unknown>): Agent
   return { ...call, arguments: JSON.stringify(args) };
 }
 
-export function coalescedListMessage(previous: string): string {
+export function coalescedListMessage(previous: string, tool = WORK_ITEM_LIST_TOOL): string {
+  if (tool === SPRINT_LIST_TOOL || /sprint_list/i.test(tool)) {
+    return JSON.stringify({
+      coalesced: true,
+      repeated: true,
+      message:
+        "Sprint lists were combined into one project list (all statuses). Do not list sprints again. Next: fairlx_work_item_bulk_update with clearAssignees or sprintId + assigneeIds.",
+      previous: compactPrevious(previous, LIST_PREVIOUS_MAX),
+    });
+  }
   return JSON.stringify({
     coalesced: true,
     repeated: true,
     message:
-      "Overlapping work-item list filters were combined into one project list. assignment.byAssignee is who the board shows. To assign a share, call fairlx_work_item_bulk_update with assignPercent. Do not list again.",
+      "Overlapping work-item list filters were combined into one project list. assignment.byAssignee is who the board shows. To unassign or assign a sprint, call fairlx_work_item_bulk_update with clearAssignees or sprintId + assigneeIds. Do not list again.",
     previous: projectCachedWorkItemList(previous),
   });
 }
@@ -298,51 +352,114 @@ export function collapseWorkItemListFanOut(calls: AgentToolCall[]): {
         row.parts.args.backlog !== true &&
         row.parts.args.backlog !== "true",
     );
-  if (lists.length < 2) return { calls, coalescedIds };
-
-  const byProject = new Map<string, typeof lists>();
-  for (const row of lists) {
-    const projectId = String(row.parts.args.projectId ?? "");
-    const group = byProject.get(projectId) ?? [];
-    group.push(row);
-    byProject.set(projectId, group);
-  }
 
   const next = [...calls];
-  for (const group of byProject.values()) {
-    if (group.length < 2) continue;
-    const allUnassigned = group.every(
-      (row) => row.parts.args.unassigned === true || row.parts.args.unassigned === "true",
-    );
-    const assigneeIds = new Set(group.map((row) => String(row.parts.args.assigneeId ?? "")));
-    const sprints = new Set(group.map((row) => String(row.parts.args.sprintId ?? "")));
-    const sharedSprint = sprints.size === 1 ? [...sprints][0] : "";
-    const mixedFilters = group.some((row, index) => {
-      if (index === 0) return false;
-      const a = group[0]!.parts.args;
-      const b = row.parts.args;
-      return (
-        a.status !== b.status ||
-        a.type !== b.type ||
-        a.sprintId !== b.sprintId ||
-        Boolean(a.unassigned) !== Boolean(b.unassigned) ||
-        String(a.assigneeId ?? "") !== String(b.assigneeId ?? "")
+  if (lists.length >= 2) {
+    const byProject = new Map<string, typeof lists>();
+    for (const row of lists) {
+      const projectId = String(row.parts.args.projectId ?? "");
+      const group = byProject.get(projectId) ?? [];
+      group.push(row);
+      byProject.set(projectId, group);
+    }
+
+    for (const group of byProject.values()) {
+      if (group.length < 2) continue;
+      const allUnassigned = group.every(
+        (row) => row.parts.args.unassigned === true || row.parts.args.unassigned === "true",
       );
-    });
+      const assigneeIds = new Set(group.map((row) => String(row.parts.args.assigneeId ?? "")));
+      const sprints = new Set(group.map((row) => String(row.parts.args.sprintId ?? "")));
+      const sharedSprint = sprints.size === 1 ? [...sprints][0] : "";
+      const mixedFilters = group.some((row, index) => {
+        if (index === 0) return false;
+        const a = group[0]!.parts.args;
+        const b = row.parts.args;
+        return (
+          a.status !== b.status ||
+          a.type !== b.type ||
+          a.sprintId !== b.sprintId ||
+          Boolean(a.unassigned) !== Boolean(b.unassigned) ||
+          String(a.assigneeId ?? "") !== String(b.assigneeId ?? "")
+        );
+      });
+      const canonical: Record<string, unknown> = {
+        projectId: String(group[0]!.parts.args.projectId ?? ""),
+      };
+      if (sharedSprint) canonical.sprintId = sharedSprint;
+      if (!mixedFilters && allUnassigned) canonical.unassigned = true;
+      if (!mixedFilters && assigneeIds.size === 1 && [...assigneeIds][0]) {
+        canonical.assigneeId = [...assigneeIds][0];
+      }
+      for (const row of group) {
+        next[row.index] = withListArgs(row.call, canonical);
+      }
+      for (const row of group.slice(1)) coalescedIds.add(row.call.id);
+    }
+  }
+
+  const sprintRows = next
+    .map((call, index) => ({ call, index, parts: unwrapListCall(call) }))
+    .filter((row) => row.parts.tool === SPRINT_LIST_TOOL);
+  const sprintsByProject = new Map<string, typeof sprintRows>();
+  for (const row of sprintRows) {
+    const projectId = String(row.parts.args.projectId ?? "");
+    const group = sprintsByProject.get(projectId) ?? [];
+    group.push(row);
+    sprintsByProject.set(projectId, group);
+  }
+  for (const group of sprintsByProject.values()) {
     const canonical: Record<string, unknown> = {
       projectId: String(group[0]!.parts.args.projectId ?? ""),
+      limit: 100,
     };
-    if (sharedSprint) canonical.sprintId = sharedSprint;
-    if (!mixedFilters && allUnassigned) canonical.unassigned = true;
-    if (!mixedFilters && assigneeIds.size === 1 && [...assigneeIds][0]) {
-      canonical.assigneeId = [...assigneeIds][0];
-    }
     for (const row of group) {
       next[row.index] = withListArgs(row.call, canonical);
     }
     for (const row of group.slice(1)) coalescedIds.add(row.call.id);
   }
+
   return { calls: next, coalescedIds };
+}
+
+const WORK_ITEM_GET_TOOL = "fairlx_work_item_get";
+
+/** One list is enough for a PRD. Extra get-per-epic calls blow the context window. */
+export function collapseRedundantReadFanOut(calls: AgentToolCall[]): { skipIds: Set<string> } {
+  const skipIds = new Set<string>();
+  const gets = calls.filter((call) => unwrapListCall(call).tool === WORK_ITEM_GET_TOOL);
+  for (const extra of gets.slice(1)) skipIds.add(extra.id);
+  const fetches = calls.filter((call) => call.name === "web_fetch");
+  for (const extra of fetches.slice(4)) skipIds.add(extra.id);
+  return { skipIds };
+}
+
+export const SKIPPED_WORK_ITEM_GET = JSON.stringify({
+  skipped: true,
+  message:
+    "Do not fetch work items one by one. Use the fairlx_work_item_list already in context and write the document. Extra get calls were skipped to keep the model context from filling up.",
+});
+
+export const SKIPPED_WEB_FETCH = JSON.stringify({
+  skipped: true,
+  message:
+    "Enough pages are already in context for this step. Write the document from the searches and fetches you have. Do not fetch more pages.",
+});
+
+export function documentationWriteTools<T extends { function: { name: string } }>(tools: T[]): T[] {
+  const next = tools.filter((tool) => /^fairlx_doc_(create|update|list|get)$/.test(tool.function.name));
+  return next.length ? next : tools;
+}
+
+export function toolsWhenContextIsTight<T extends { function: { name: string } }>(
+  tools: T[],
+  researched: boolean,
+): T[] {
+  if (researched) return documentationWriteTools(tools);
+  const next = tools.filter((tool) =>
+    /^(web_search|fairlx_doc_list|fairlx_work_item_list)$/.test(tool.function.name),
+  );
+  return next.length ? next : tools;
 }
 
 export function fingerprintsFromMessages(messages: AgentChatMessage[]): Map<string, string> {
@@ -366,13 +483,17 @@ export function fingerprintsFromMessages(messages: AgentChatMessage[]): Map<stri
 }
 
 export function repeatedToolMessage(previous: string, tool = ""): string {
-  const list = /work_item_list/i.test(tool);
+  const workList = /work_item_list/i.test(tool);
+  const sprintList = /sprint_list/i.test(tool);
+  const message = sprintList
+    ? "Sprints for this project are already loaded. Do not list sprints again. Call fairlx_work_item_bulk_update with clearAssignees: true to unassign sprint items, or sprintId (Sprint 1) and assigneeIds to assign a whole sprint."
+    : workList
+      ? "This project's work items are already loaded. Do not list again. assignment.byAssignee is who the board shows. Call fairlx_work_item_bulk_update with clearAssignees, sprintId + assigneeIds, or assignPercent — do not pick keys or list again. To parent stories under epics, call it with assignEpics: true."
+      : "This exact tool call was already made. Use the previous result and continue the task. Do not call this tool again with the same arguments.";
   return JSON.stringify({
     repeated: true,
-    message: list
-      ? "This project's work items are already loaded. Do not list again. assignment.byAssignee is who the board shows. Call fairlx_work_item_bulk_update with assignPercent and assigneeIds (name or email) — do not pick keys or list again. To parent stories under epics, call it with assignEpics: true."
-      : "This exact tool call was already made. Use the previous result and continue the task. Do not call this tool again with the same arguments.",
-    previous: compactPrevious(previous, list ? LIST_PREVIOUS_MAX : PREVIOUS_RESULT_MAX),
+    message,
+    previous: compactPrevious(previous, workList || sprintList ? LIST_PREVIOUS_MAX : PREVIOUS_RESULT_MAX),
   });
 }
 

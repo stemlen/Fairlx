@@ -219,6 +219,7 @@ export async function logAIUsage(
         completionTokens: number;
         totalTokens: number;
         costUSD: number;
+        cachedTokens?: number;
         operationId?: string;
     }
 ): Promise<void> {
@@ -243,6 +244,7 @@ export async function logAIUsage(
                 model: options.model,
                 promptTokens: options.promptTokens,
                 completionTokens: options.completionTokens,
+                cachedTokens: options.cachedTokens ?? options.metadata?.cachedTokens ?? 0,
                 totalTokens: options.totalTokens,
                 tokensUsed: options.totalTokens, // backward compat
                 costUSD: options.costUSD,

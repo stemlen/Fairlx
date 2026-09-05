@@ -14,6 +14,7 @@ import { useProjectId } from "@/features/projects/hooks/use-project-id";
 import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 import { useGetProject } from "@/features/projects/api/use-get-project";
 import { DocumentList } from "@/features/project-docs/components";
+import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 
 export const ProjectDocsClient = () => {
   const projectId = useProjectId();
@@ -45,6 +46,8 @@ export const ProjectDocsClient = () => {
           </p>
         </div>
       </div>
+
+      <GitHubOptionalPrompt projectId={projectId} workspaceId={workspaceId} />
 
       {/* Quick Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">

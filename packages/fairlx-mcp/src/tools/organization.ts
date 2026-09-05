@@ -10,7 +10,22 @@ export const ORG_PERMISSION = {
   MEMBERS_MANAGE: "org.members.manage",
   SETTINGS_MANAGE: "org.settings.manage",
   WORKSPACE_ASSIGN: "org.workspace.assign",
+  DEPARTMENTS_MANAGE: "org.departments.manage",
 } as const;
+
+export const ORG_PERMISSION_KEYS = [
+  "org.billing.view",
+  "org.billing.manage",
+  "org.members.view",
+  "org.members.manage",
+  "org.settings.manage",
+  "org.audit.view",
+  "org.compliance.view",
+  "org.departments.manage",
+  "org.security.view",
+  "org.workspace.create",
+  "org.workspace.assign",
+] as const;
 
 export async function resolveOrganizationId(
   args: Record<string, unknown>,
@@ -247,5 +262,250 @@ export async function organizationUpdate(
   return toolResult({
     organization: { name: String(updated.name ?? name) },
     updated: true,
+  });
+}
+
+function parsePermissionKeys(raw: unknown): string[] {
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => String(item ?? "").trim()).filter(Boolean);
+}
+
+function requireOrgPermissionKeys(raw: unknown): string[] {
+  const keys = parsePermissionKeys(raw);
+  const allowed = new Set<string>(ORG_PERMISSION_KEYS);
+  const invalid = keys.filter((key) => !allowed.has(key));
+  if (invalid.length) {
+    throw invalidParams(
+      `Unknown permission key: ${invalid.join(", ")}. Use one of: ${ORG_PERMISSION_KEYS.join(", ")}`,
+    );
+  }
+  return keys;
+}
+
+function parseDepartmentPermissionBlob(raw: unknown): string[] {
+  if (typeof raw === "string" && raw.trim()) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
+        }
+      } catch {
+        // fall through
+      }
+    }
+    if (trimmed.includes(",")) return trimmed.split(",").map((key) => key.trim()).filter(Boolean);
+    return [trimmed];
+  }
+  if (Array.isArray(raw)) return raw.map((item) => String(item ?? "").trim()).filter(Boolean);
+  return [];
+}
+
+async function requireDepartmentsManage(
+  runtime: McpRuntime,
+  auth: AuthContext,
+  organizationId: string,
+) {
+  if (!runtime.resolveUserOrgAccess) {
+    throw forbiddenError("Organization departments are unavailable.");
+  }
+  const access = await runtime.resolveUserOrgAccess(auth.actorUserId, organizationId);
+  if (!hasOrgPermission(access, ORG_PERMISSION.DEPARTMENTS_MANAGE)) {
+    throw forbiddenError(
+      "You do not have permission to manage departments. Org owners and members with org.departments.manage can do this.",
+    );
+  }
+}
+
+async function loadDepartmentPermissions(
+  runtime: McpRuntime,
+  organizationId: string,
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  const collection = runtime.collections.departmentPermissions;
+  if (!collection) return map;
+  const docs = await listAllDocuments(runtime, collection, [
+    { type: "equal", field: "organizationId", value: organizationId },
+  ]);
+  for (const doc of docs) {
+    const departmentId = String(doc.departmentId ?? "");
+    if (!departmentId) continue;
+    const keys = parseDepartmentPermissionBlob(doc.permissions ?? doc.permissionKey);
+    map.set(departmentId, [...(map.get(departmentId) ?? []), ...keys]);
+  }
+  return map;
+}
+
+async function upsertDepartmentPermissions(
+  runtime: McpRuntime,
+  organizationId: string,
+  departmentId: string,
+  addKeys: string[],
+): Promise<string[]> {
+  const collection = runtime.collections.departmentPermissions;
+  if (!collection) throw invalidParams("Department permissions are unavailable.");
+  const existing = await runtime.store.list<Record<string, unknown>>(collection, [
+    { type: "equal", field: "departmentId", value: departmentId },
+    { type: "limit", value: 20 },
+  ]);
+  const primary = existing.documents[0];
+  const current = parseDepartmentPermissionBlob(primary?.permissions ?? primary?.permissionKey);
+  const next = [...current];
+  for (const key of addKeys) {
+    if (!next.includes(key)) next.push(key);
+  }
+  const blob = JSON.stringify(next);
+  if (primary) {
+    await runtime.store.update(collection, String(primary.$id ?? primary.id ?? ""), { permissions: blob });
+  } else {
+    await runtime.store.create(collection, {
+      organizationId,
+      departmentId,
+      permissions: blob,
+    });
+  }
+  return next;
+}
+
+export async function departmentList(
+  args: Record<string, unknown>,
+  runtime: McpRuntime,
+  auth: AuthContext,
+): Promise<McpToolResult> {
+  const organizationId = await resolveOrganizationId(args, runtime, auth);
+  await requireOrgRead(runtime, auth, organizationId);
+  const collection = runtime.collections.departments;
+  if (!collection) {
+    return toolResult({ departments: [], message: "Departments are unavailable." });
+  }
+  const departments = await listAllDocuments(runtime, collection, [
+    { type: "equal", field: "organizationId", value: organizationId },
+  ]);
+  const permissionMap = await loadDepartmentPermissions(runtime, organizationId);
+  return toolResult({
+    departments: departments
+      .sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")))
+      .map((dept) => {
+        const id = String(dept.$id ?? dept.id ?? "");
+        return {
+          id,
+          name: String(dept.name ?? ""),
+          description: String(dept.description ?? "") || undefined,
+          color: String(dept.color ?? "") || undefined,
+          permissions: [...new Set(permissionMap.get(id) ?? [])],
+        };
+      }),
+  });
+}
+
+type DepartmentDraft = {
+  name: string;
+  description?: string;
+  color?: string;
+  permissions: string[];
+};
+
+function departmentDraftsFromArgs(args: Record<string, unknown>): DepartmentDraft[] {
+  const batch = Array.isArray(args.departments) ? args.departments : null;
+  if (batch) {
+    return batch.map((item) => {
+      const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      const name = String(record.name ?? "").trim();
+      if (!name) throw invalidParams("Each department needs a name");
+      return {
+        name,
+        description: optionalString(record, "description") || undefined,
+        color: optionalString(record, "color") || undefined,
+        permissions: requireOrgPermissionKeys(record.permissions ?? record.permissionKeys),
+      };
+    });
+  }
+  const name = optionalString(args, "name")?.trim();
+  if (!name) {
+    throw invalidParams("Provide name, or departments: [{ name, permissions }]");
+  }
+  return [
+    {
+      name,
+      description: optionalString(args, "description") || undefined,
+      color: optionalString(args, "color") || undefined,
+      permissions: requireOrgPermissionKeys(args.permissions ?? args.permissionKeys ?? args.permissionKey),
+    },
+  ];
+}
+
+export async function departmentCreate(
+  args: Record<string, unknown>,
+  runtime: McpRuntime,
+  auth: AuthContext,
+): Promise<McpToolResult> {
+  const organizationId = await resolveOrganizationId(args, runtime, auth);
+  await requireDepartmentsManage(runtime, auth, organizationId);
+  const collection = runtime.collections.departments;
+  if (!collection) throw invalidParams("Departments are unavailable.");
+  const drafts = departmentDraftsFromArgs(args);
+  const existing = await listAllDocuments(runtime, collection, [
+    { type: "equal", field: "organizationId", value: organizationId },
+  ]);
+  const created = [];
+  for (const draft of drafts) {
+    const duplicate = existing.find(
+      (doc) => String(doc.name ?? "").trim().toLowerCase() === draft.name.toLowerCase(),
+    );
+    if (duplicate) {
+      throw invalidParams(`Department "${draft.name}" already exists`);
+    }
+    const payload: Record<string, unknown> = {
+      organizationId,
+      name: draft.name,
+      color: draft.color || "#4F46E5",
+    };
+    if (draft.description) payload.description = draft.description;
+    const dept = await runtime.store.create<Record<string, unknown>>(collection, payload);
+    const id = String(dept.$id ?? dept.id ?? "");
+    existing.push({ ...dept, $id: id, name: draft.name });
+    const permissions = draft.permissions.length
+      ? await upsertDepartmentPermissions(runtime, organizationId, id, draft.permissions)
+      : [];
+    created.push({
+      id,
+      name: draft.name,
+      description: draft.description,
+      color: String(payload.color),
+      permissions,
+    });
+  }
+  return toolResult({ created: true, departments: created });
+}
+
+export async function departmentPermissionAdd(
+  args: Record<string, unknown>,
+  runtime: McpRuntime,
+  auth: AuthContext,
+): Promise<McpToolResult> {
+  const organizationId = await resolveOrganizationId(args, runtime, auth);
+  await requireDepartmentsManage(runtime, auth, organizationId);
+  const collection = runtime.collections.departments;
+  if (!collection) throw invalidParams("Departments are unavailable.");
+  const keys = requireOrgPermissionKeys(args.permissions ?? args.permissionKeys ?? args.permissionKey);
+  if (!keys.length) throw invalidParams("Provide permissionKey or permissions");
+  const departments = await listAllDocuments(runtime, collection, [
+    { type: "equal", field: "organizationId", value: organizationId },
+  ]);
+  const departmentId = optionalString(args, "departmentId");
+  const departmentName = optionalString(args, "departmentName") || optionalString(args, "name");
+  const dept = departmentId
+    ? departments.find((doc) => String(doc.$id ?? doc.id ?? "") === departmentId)
+    : departments.find(
+        (doc) => String(doc.name ?? "").trim().toLowerCase() === (departmentName ?? "").toLowerCase(),
+      );
+  if (!dept) throw notFoundError("Department not found");
+  const id = String(dept.$id ?? dept.id ?? "");
+  const permissions = await upsertDepartmentPermissions(runtime, organizationId, id, keys);
+  return toolResult({
+    updated: true,
+    department: { id, name: String(dept.name ?? ""), permissions },
   });
 }

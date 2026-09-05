@@ -20,6 +20,10 @@ function toAppwriteQueries(queries: McpQuery[]): string[] {
         return Query.notEqual(query.field, query.value as string | number | boolean);
       case "isNull":
         return Query.isNull(query.field);
+      case "greaterThanEqual":
+        return Query.greaterThanEqual(query.field, query.value);
+      case "lessThan":
+        return Query.lessThan(query.field, query.value);
       case "limit":
         return Query.limit(query.value);
       case "cursorAfter":

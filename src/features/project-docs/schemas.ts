@@ -108,6 +108,11 @@ export const deleteProjectDocumentSchema = z.object({
   workspaceId: z.string().trim().min(1, "Workspace ID is required"),
 });
 
+export const downloadProjectDocumentSchema = z.object({
+  workspaceId: z.string().trim().min(1, "Workspace ID is required"),
+  format: z.enum(["md", "pdf", "docx"]).optional(),
+});
+
 // Get documents schema
 export const getProjectDocumentsSchema = z.object({
   projectId: z.string().trim().min(1, "Project ID is required"),

@@ -19,8 +19,11 @@ export const AGENT_JOBS_QUERY_KEY = ["agent-jobs"] as const;
 
 export const PLATFORM_XAI_PROVIDER_ID = "platform-xai";
 export const PLATFORM_DEEPSEEK_PROVIDER_ID = "platform-deepseek";
+export const PLATFORM_FOUNDRY_PROVIDER_ID = "platform-foundry";
 export const GROK_46_MODEL_ID = "grok-4.6";
 export const DEEPSEEK_FLASH_MODEL_ID = "deepseek-flash";
+export const FOUNDRY_GPT_LUNA_MODEL_ID = "gpt-5.6-luna";
+export const LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID = "foundry-deepseek-v4";
 
 export const DEFAULT_FAIRLX_MCP_SERVER_NAME = "fairlx";
 export const PERSONAL_MCP_SERVER_NAME = "fairlx-personal";
@@ -90,6 +93,22 @@ export const PLATFORM_DEEPSEEK_PROVIDER: AgentProviderStored = {
   isPlatform: true,
 };
 
+export const PLATFORM_FOUNDRY_PROVIDER: AgentProviderStored = {
+  id: PLATFORM_FOUNDRY_PROVIDER_ID,
+  provider: "azure",
+  displayName: "Azure Foundry (Fairlx)",
+  baseUrl: "https://projectfairlx-resource.services.ai.azure.com",
+  extra: {
+    vendor: "azure",
+    deployment: "gpt-5.6-luna",
+    openaiPath: "/openai/v1",
+    authHeader: "api-key",
+    api: "responses",
+  },
+  isEnabled: true,
+  isPlatform: true,
+};
+
 export const PLATFORM_GROK_MODEL: AgentModel = {
   id: GROK_46_MODEL_ID,
   providerId: PLATFORM_XAI_PROVIDER_ID,
@@ -118,18 +137,39 @@ export const PLATFORM_DEEPSEEK_MODEL: AgentModel = {
   maxOutputTokens: 8192,
 };
 
+export const PLATFORM_FOUNDRY_MODEL: AgentModel = {
+  id: FOUNDRY_GPT_LUNA_MODEL_ID,
+  providerId: PLATFORM_FOUNDRY_PROVIDER_ID,
+  modelId: "gpt-5.6-luna",
+  displayName: "GPT-5.6 Luna",
+  role: "custom",
+  isEnabled: true,
+  isPlatform: true,
+  toolCalling: true,
+  vision: true,
+  maxInputTokens: 128000,
+  maxOutputTokens: 128000,
+};
+
 export function getPlatformProviders(): AgentProviderStored[] {
   if (isPlatformGrokEnabled()) {
-    return [PLATFORM_XAI_PROVIDER, PLATFORM_DEEPSEEK_PROVIDER];
+    return [PLATFORM_XAI_PROVIDER, PLATFORM_FOUNDRY_PROVIDER, PLATFORM_DEEPSEEK_PROVIDER];
   }
-  return [PLATFORM_DEEPSEEK_PROVIDER];
+  return [PLATFORM_FOUNDRY_PROVIDER, PLATFORM_DEEPSEEK_PROVIDER];
 }
 
 export function getPlatformModels(): AgentModel[] {
   if (isPlatformGrokEnabled()) {
-    return [PLATFORM_GROK_MODEL, { ...PLATFORM_DEEPSEEK_MODEL, role: "flash" }];
+    return [
+      PLATFORM_GROK_MODEL,
+      { ...PLATFORM_FOUNDRY_MODEL, role: "custom" },
+      { ...PLATFORM_DEEPSEEK_MODEL, role: "flash" },
+    ];
   }
-  return [{ ...PLATFORM_DEEPSEEK_MODEL, role: "default" }];
+  return [
+    { ...PLATFORM_FOUNDRY_MODEL, role: "custom" },
+    { ...PLATFORM_DEEPSEEK_MODEL, role: "default" },
+  ];
 }
 
 export function getPlatformDefaultModelId(): string {
@@ -139,11 +179,13 @@ export function getPlatformDefaultModelId(): string {
 // Public Azure resource URLs only. API keys live in server env (AGENT_*_AZURE_API_KEY).
 export const PLATFORM_PROVIDERS: AgentProviderStored[] = [
   PLATFORM_XAI_PROVIDER,
+  PLATFORM_FOUNDRY_PROVIDER,
   PLATFORM_DEEPSEEK_PROVIDER,
 ];
 
 export const PLATFORM_MODELS: AgentModel[] = [
   PLATFORM_GROK_MODEL,
+  { ...PLATFORM_FOUNDRY_MODEL, role: "custom" },
   { ...PLATFORM_DEEPSEEK_MODEL, role: "flash" },
 ];
 
@@ -207,7 +249,13 @@ export const AGENT_TOOL_CATALOG = [
     id: "web_search",
     name: "Web search",
     icon: "fa-solid fa-globe",
-    description: "Search the public web via DuckDuckGo.",
+    description: "Search Wikipedia and the public web for research.",
+  },
+  {
+    id: "web_fetch",
+    name: "Fetch page",
+    icon: "fa-solid fa-file-lines",
+    description: "Fetch a public web page for research. Use after web search.",
   },
   {
     id: "database_query",
@@ -390,6 +438,7 @@ export const NEW_AGENT_TOOL_IDS = [
   "github_open_pr",
   "security_review",
   "agent_job_status",
+  "web_fetch",
 ] as const;
 
 export const STARTER_SKILLS: Omit<AgentSkill, "id" | "createdAt">[] = [

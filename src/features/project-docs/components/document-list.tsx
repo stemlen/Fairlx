@@ -7,7 +7,6 @@ import {
   FolderOpen,
   Loader2,
   Upload,
-  Download,
   Trash2,
   CheckSquare,
   Square,
@@ -32,6 +31,8 @@ import { DocumentCard } from "./document-card";
 import { DocumentUploadModal } from "./document-upload-modal";
 import { DocumentEditModal } from "./document-edit-modal";
 import { DocumentReplaceModal } from "./document-replace-modal";
+import { DocumentPreviewModal } from "./document-preview-modal";
+import { DocumentDownloadMenu } from "./document-download-menu";
 
 import { useGetProjectDocuments, useDeleteProjectDocument, useDownloadDocument } from "../api/use-project-docs";
 import {
@@ -43,6 +44,7 @@ import { formatFileSize, MAX_TOTAL_PROJECT_SIZE } from "../schemas";
 import { useConfirm } from "@/hooks/use-confirm";
 import { useProjectPermissions } from "@/hooks/use-project-permissions";
 import { useCurrentMember } from "@/features/members/hooks/use-current-member";
+import type { DownloadDocumentFormat } from "../lib/document-file";
 
 interface DocumentListProps {
   projectId: string;
@@ -62,6 +64,7 @@ export const DocumentList = ({ projectId, workspaceId, readOnly = false }: Docum
   // Modal states
   const [editDocument, setEditDocument] = useState<PopulatedProjectDocument | null>(null);
   const [replaceDocument, setReplaceDocument] = useState<PopulatedProjectDocument | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<PopulatedProjectDocument | null>(null);
 
   // Permission hooks
   const {
@@ -180,7 +183,7 @@ export const DocumentList = ({ projectId, workspaceId, readOnly = false }: Docum
     toast.success(`Deleting ${idsToDelete.length} document(s)...`);
   };
 
-  const handleBulkDownload = () => {
+  const handleBulkDownload = (format: DownloadDocumentFormat) => {
     if (selectedIds.size === 0) return;
 
     const docsToDownload = filteredDocuments.filter(doc => selectedIds.has(doc.$id));
@@ -189,6 +192,8 @@ export const DocumentList = ({ projectId, workspaceId, readOnly = false }: Docum
         documentId: doc.$id,
         workspaceId,
         fileName: doc.title,
+        format,
+        silent: true,
       });
     });
 
@@ -324,16 +329,12 @@ export const DocumentList = ({ projectId, workspaceId, readOnly = false }: Docum
             <span className="text-xs font-light text-muted-foreground">
               {selectedIds.size} selected
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground hover:text-primary hover:bg-primary/10"
-              onClick={handleBulkDownload}
+            <DocumentDownloadMenu
               disabled={isDownloading}
-            >
-              <Download className="h-3.5 w-3.5 mr-1" />
-              Download
-            </Button>
+              onSelect={handleBulkDownload}
+              iconOnly={false}
+              triggerClassName="h-7 px-2 text-xs text-muted-foreground hover:text-primary hover:bg-primary/10"
+            />
             {canDelete && (
               <Button
                 variant="ghost"
@@ -386,6 +387,7 @@ export const DocumentList = ({ projectId, workspaceId, readOnly = false }: Docum
               projectId={projectId}
               onEdit={canEdit ? setEditDocument : undefined}
               onReplace={canEdit ? setReplaceDocument : undefined}
+              onPreview={setPreviewDocument}
               isSelected={selectedIds.has(doc.$id)}
               onSelect={() => handleSelectOne(doc.$id)}
               isLast={index === filteredDocuments.length - 1}
@@ -413,6 +415,14 @@ export const DocumentList = ({ projectId, workspaceId, readOnly = false }: Docum
           workspaceId={workspaceId}
           open={!!replaceDocument}
           onOpenChange={(open) => !open && setReplaceDocument(null)}
+        />
+      )}
+      {previewDocument && (
+        <DocumentPreviewModal
+          document={previewDocument}
+          workspaceId={workspaceId}
+          open={!!previewDocument}
+          onOpenChange={(open) => !open && setPreviewDocument(null)}
         />
       )}
     </div>

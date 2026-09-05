@@ -42,6 +42,7 @@ import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 import { Navbar } from "@/components/navbar";
 import { Sidebar } from "@/components/sidebar";
 import { ProfileSidebar } from "@/components/ProfileSidebar";
+import { WalletBillingBanner } from "@/features/billing/components/wallet-billing-alerts";
 
 import { LifecycleGuard } from "@/components/lifecycle-guard";
 import { cn } from "@/lib/utils";
@@ -93,6 +94,7 @@ const isWorkflowPage = /^\/workspaces\/[^\/]+\/spaces\/[^\/]+\/workflows\/[^\/]+
         </div>
         <div className="lg:pl-[264px] w-full flex flex-col min-h-screen">
           <Navbar />
+          <WalletBillingBanner />
           <div className="flex-1 overflow-y-auto bg-background">
             <main className={cn(
               "flex flex-col",

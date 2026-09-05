@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentChatMessage, AgentToolCall } from "../types";
 import {
+  canonicalizeToolCall,
   collapseWorkItemListFanOut,
+  collapseRedundantReadFanOut,
+  documentationWriteTools,
   fingerprintsFromMessages,
   isFailedToolContent,
   listSliceKey,
@@ -154,6 +157,34 @@ describe("list slice cache", () => {
     expect(listSliceKey("fairlx_work_item_list", { projectId: "p1", backlog: true })).not.toBe(
       listSliceKey("fairlx_work_item_list", { projectId: "p1" }),
     );
+    expect(listSliceKey("fairlx_sprint_list", { projectId: "p1", status: "ACTIVE" })).toBe(
+      listSliceKey("fairlx_sprint_list", { projectId: "p1", status: "ALL", limit: 50 }),
+    );
+  });
+
+  it("strips sprint list status so ACTIVE and ALL are the same call", () => {
+    const call = canonicalizeToolCall({
+      id: "s1",
+      name: "fairlx_sprint_list",
+      arguments: JSON.stringify({ projectId: "p1", status: "ACTIVE", limit: 50, cursorAfter: "" }),
+    });
+    expect(JSON.parse(call.arguments)).toEqual({ projectId: "p1", limit: 100 });
+  });
+
+  it("skips a second sprint list after one already loaded", () => {
+    const cache = new Map();
+    rememberListSlice(
+      cache,
+      "fairlx_sprint_list",
+      { projectId: "p1", status: "ACTIVE" },
+      JSON.stringify({ sprints: [{ name: "Sprint 1" }], total: 1 }),
+    );
+    const skip = resolveListSliceCall(cache, "fairlx_sprint_list", {
+      projectId: "p1",
+      status: "PLANNED",
+    });
+    expect(skip.action).toBe("skip");
+    if (skip.action === "skip") expect(skip.content).toMatch(/Do not list sprints again/);
   });
 
   it("projects an unassigned skip from the already-loaded list", () => {
@@ -219,7 +250,19 @@ describe("collapseWorkItemListFanOut", () => {
     expect(JSON.parse(next[0]!.arguments)).toEqual({ projectId: "p1" });
     expect(JSON.parse(next[1]!.arguments)).toEqual({ projectId: "p1" });
     expect(next[2]!.name).toBe("fairlx_sprint_list");
+    expect(JSON.parse(next[2]!.arguments)).toEqual({ projectId: "p1", limit: 100 });
     expect([...coalescedIds]).toEqual(["c2"]);
+  });
+
+  it("collapses ACTIVE and PLANNED sprint lists into one unfiltered list", () => {
+    const calls: AgentToolCall[] = [
+      { id: "s1", name: "fairlx_sprint_list", arguments: JSON.stringify({ projectId: "p1", status: "ACTIVE" }) },
+      { id: "s2", name: "fairlx_sprint_list", arguments: JSON.stringify({ projectId: "p1", status: "PLANNED" }) },
+    ];
+    const { calls: next, coalescedIds } = collapseWorkItemListFanOut(calls);
+    expect(JSON.parse(next[0]!.arguments)).toEqual({ projectId: "p1", limit: 100 });
+    expect(JSON.parse(next[1]!.arguments)).toEqual({ projectId: "p1", limit: 100 });
+    expect([...coalescedIds]).toEqual(["s2"]);
   });
 
   it("does not merge an unassigned list with a typed list", () => {
@@ -231,5 +274,37 @@ describe("collapseWorkItemListFanOut", () => {
     expect(JSON.parse(next[0]!.arguments)).toEqual({ projectId: "p1" });
     expect(JSON.parse(next[1]!.arguments)).toEqual({ projectId: "p1" });
     expect([...coalescedIds]).toEqual(["c2"]);
+  });
+});
+
+describe("collapseRedundantReadFanOut", () => {
+  it("keeps one work-item get and four page fetches per step", () => {
+    const calls: AgentToolCall[] = [
+      { id: "g1", name: "fairlx_work_item_get", arguments: JSON.stringify({ workItemId: "SCHO-1" }) },
+      { id: "g2", name: "fairlx_work_item_get", arguments: JSON.stringify({ workItemId: "SCHO-2" }) },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `f${index}`,
+        name: "web_fetch",
+        arguments: JSON.stringify({ url: `https://example.com/${index}` }),
+      })),
+    ];
+    const { skipIds } = collapseRedundantReadFanOut(calls);
+    expect(skipIds.has("g1")).toBe(false);
+    expect(skipIds.has("g2")).toBe(true);
+    expect(skipIds.has("f0")).toBe(false);
+    expect(skipIds.has("f3")).toBe(false);
+    expect(skipIds.has("f4")).toBe(true);
+  });
+});
+
+describe("documentationWriteTools", () => {
+  it("narrows to document tools so a full context can still save a PRD", () => {
+    const tools = ["web_fetch", "fairlx_doc_create", "fairlx_work_item_get", "fairlx_doc_list"].map((name) => ({
+      function: { name },
+    }));
+    expect(documentationWriteTools(tools).map((tool) => tool.function.name)).toEqual([
+      "fairlx_doc_create",
+      "fairlx_doc_list",
+    ]);
   });
 });

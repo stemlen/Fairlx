@@ -69,6 +69,9 @@ describe("isWriteToolCall", () => {
     expect(confirmationSummary(call("fairlx_project_team_create", { name: "Developers" }))).toBe(
       'Create team "Developers"?',
     );
+    expect(confirmationSummary(call("fairlx_doc_create", { title: "Architecture" }))).toBe(
+      'Save project document "Architecture"?',
+    );
     expect(confirmationSummary(call("mail_send", { to: "ada@x.com", subject: "Issue" }))).toBe("Send mail to ada@x.com?");
   });
 });
@@ -81,6 +84,9 @@ describe("write risk and permission type", () => {
     expect(writeRiskLevel(call("github_open_pr", { title: "Fix" }))).toBe("privileged");
     expect(writeRiskLevel(call("fairlx_work_item_delete", { workItemId: "x" }))).toBe("privileged");
     expect(writeRiskLevel(call("fairlx_workspace_member_add", { name: "Ada" }))).toBe("privileged");
+    expect(writeRiskLevel(call("fairlx_doc_create", { title: "PRD" }))).toBe("privileged");
+    expect(needsConfirmation(call("fairlx_doc_create", { title: "PRD" }), "staged")).toBe(true);
+    expect(needsConfirmation(call("fairlx_doc_create", { title: "PRD" }), "all_access")).toBe(false);
     expect(writeRiskLevel(call("github_read_file", { path: "a.ts" }))).toBe("read");
   });
 

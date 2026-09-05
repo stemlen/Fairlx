@@ -20,6 +20,7 @@ import {
     WalletStatus,
 } from "../types";
 import { setupOrganizationBilling, setupPersonalBilling } from "@/features/billing/services/billing-service";
+import { WALLET_OVERDRAFT_LIMIT_USD } from "@/lib/ai-billing";
 
 /**
  * Wallet Service
@@ -452,8 +453,9 @@ export async function deductFromWallet(
         referenceId: string;
         idempotencyKey: string;
         description?: string;
+        skipRateLimit?: boolean;
     }
-): Promise<{ success: boolean; transaction?: WalletTransaction; error?: string }> {
+): Promise<{ success: boolean; transaction?: WalletTransaction; error?: string; locked?: boolean; balanceAfter?: number }> {
     const MAX_RETRIES = 5;
     let attempts = 0;
 
@@ -490,16 +492,19 @@ async function deductFromWalletInternal(
         referenceId: string;
         idempotencyKey: string;
         description?: string;
+        skipRateLimit?: boolean;
     }
-): Promise<{ success: boolean; transaction?: WalletTransaction; error?: string }> {
+): Promise<{ success: boolean; transaction?: WalletTransaction; error?: string; locked?: boolean; balanceAfter?: number }> {
     if (amount <= 0) {
         return { success: false, error: "Amount must be positive" };
     }
 
     // Rate limit check
-    const withinRateLimit = await checkDebitRateLimit(databases, walletId);
-    if (!withinRateLimit) {
-        return { success: false, error: "rate_limit_exceeded: Too many deductions per minute" };
+    if (!options.skipRateLimit) {
+        const withinRateLimit = await checkDebitRateLimit(databases, walletId);
+        if (!withinRateLimit) {
+            return { success: false, error: "rate_limit_exceeded: Too many deductions per minute" };
+        }
     }
 
     const { acquireProcessingLock, releaseProcessingLock } = await import("@/lib/processed-events-registry");
@@ -524,14 +529,15 @@ async function deductFromWalletInternal(
             return { success: false, error: `wallet_${wallet.status}` };
         }
 
-        // 4. Balance check (available = balance - lockedBalance)
+        // 4. Overdraft: allow negative balance down to -$20. Reject further
+        // charges once already at or below the lock floor.
         const availableBalance = wallet.balance - wallet.lockedBalance;
-        if (availableBalance < amount) {
-            // If we fail due to balance, we release the lock to allow retry if user tops up
+        if (availableBalance <= -WALLET_OVERDRAFT_LIMIT_USD) {
             await releaseProcessingLock(databases, eventKey, "wallet");
             return {
                 success: false,
-                error: "insufficient_balance",
+                error: "account_locked",
+                balanceAfter: wallet.balance,
             };
         }
 
@@ -578,7 +584,8 @@ async function deductFromWalletInternal(
             }
         );
 
-        return { success: true, transaction };
+        const locked = await maybeLockAccountForOverdraft(databases, wallet, balanceAfter);
+        return { success: true, transaction, locked, balanceAfter };
 
     } catch (error) {
         // RELEASE distributed lock so we can retry the entire process (which including re-reading wallet doc with latest version)
@@ -1154,4 +1161,83 @@ export async function ensureWalletExists(
 ): Promise<Wallet> {
     const { databases } = await createAdminClient();
     return getOrCreateWallet(databases, options);
+}
+
+async function maybeLockAccountForOverdraft(
+    databases: Databases,
+    wallet: Wallet,
+    balanceAfter: number,
+): Promise<boolean> {
+    try {
+        const { billingLog } = await import("@/lib/billing-logger");
+        if (balanceAfter < 0 && balanceAfter > -WALLET_OVERDRAFT_LIMIT_USD) {
+            billingLog.warn("WALLET", "Wallet balance is negative", {
+                walletId: wallet.$id,
+                balanceAfter,
+                organizationId: wallet.organizationId,
+                userId: wallet.userId,
+                lockAt: -WALLET_OVERDRAFT_LIMIT_USD,
+            });
+        }
+
+        if (balanceAfter > -WALLET_OVERDRAFT_LIMIT_USD) {
+            return false;
+        }
+
+        billingLog.alert("WALLET", "Locking account — wallet overdraft reached -$20", {
+            walletId: wallet.$id,
+            balanceAfter,
+            organizationId: wallet.organizationId,
+            userId: wallet.userId,
+            accountType: wallet.organizationId ? "ORG" : "PERSONAL",
+        });
+
+        if (wallet.billingAccountId) {
+            const { suspendAccount } = await import("@/features/billing/services/billing-service");
+            await suspendAccount(
+                wallet.billingAccountId,
+                `Wallet overdraft reached -$${WALLET_OVERDRAFT_LIMIT_USD.toFixed(2)} (balance $${balanceAfter.toFixed(2)})`,
+            );
+
+            const { BillingAuditEventType } = await import("@/features/billing/types");
+            const { BILLING_AUDIT_LOGS_ID } = await import("@/config");
+            await databases.createDocument(
+                DATABASE_ID,
+                BILLING_AUDIT_LOGS_ID,
+                ID.unique(),
+                {
+                    billingAccountId: wallet.billingAccountId,
+                    eventType: BillingAuditEventType.WALLET_OVERDRAFT_LOCK,
+                    metadata: JSON.stringify({
+                        walletId: wallet.$id,
+                        balanceAfter,
+                        lockThresholdUsd: WALLET_OVERDRAFT_LIMIT_USD,
+                        accountType: wallet.organizationId ? "ORG" : "PERSONAL",
+                    }),
+                    createdAt: new Date().toISOString(),
+                },
+            );
+        }
+
+        if (wallet.organizationId) {
+            const { logOrgAudit, OrgAuditAction } = await import("@/features/organizations/audit");
+            await logOrgAudit({
+                databases,
+                organizationId: wallet.organizationId,
+                actorUserId: wallet.userId || "system",
+                actionType: OrgAuditAction.ACCOUNT_LOCKED,
+                metadata: {
+                    walletId: wallet.$id,
+                    balanceAfter,
+                    lockThresholdUsd: WALLET_OVERDRAFT_LIMIT_USD,
+                    reason: "wallet_overdraft",
+                },
+            });
+        }
+
+        return true;
+    } catch (error) {
+        console.error("[Wallet] Failed to lock account after overdraft:", error);
+        return false;
+    }
 }

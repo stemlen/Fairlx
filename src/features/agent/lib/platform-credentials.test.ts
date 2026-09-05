@@ -4,8 +4,11 @@ vi.mock("server-only", () => ({}));
 
 import {
   DEEPSEEK_FLASH_MODEL_ID,
+  FOUNDRY_GPT_LUNA_MODEL_ID,
   GROK_46_MODEL_ID,
+  LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID,
   PLATFORM_DEEPSEEK_PROVIDER_ID,
+  PLATFORM_FOUNDRY_PROVIDER_ID,
   PLATFORM_XAI_PROVIDER_ID,
   getPlatformDefaultModelId,
   getPlatformModels,
@@ -14,8 +17,11 @@ import {
 } from "../constants";
 import { defaultAiStoredConfig, mergePlatformAiConfig } from "./defaults";
 import {
+  getPlatformFoundryApiKey,
   getPlatformGrokApiKey,
   getPlatformProviderCredentials,
+  normalizeAzureFoundryBaseUrl,
+  platformFoundryHasKey,
   platformGrokHasKey,
 } from "./platform-credentials";
 import { resolveChatTarget } from "./runtime";
@@ -42,10 +48,12 @@ describe("Platform Grok environment-based visibility", () => {
 
       const providers = getPlatformProviders();
       expect(providers.map((p) => p.id)).toContain(PLATFORM_XAI_PROVIDER_ID);
+      expect(providers.map((p) => p.id)).toContain(PLATFORM_FOUNDRY_PROVIDER_ID);
       expect(providers.map((p) => p.id)).toContain(PLATFORM_DEEPSEEK_PROVIDER_ID);
 
       const models = getPlatformModels();
       expect(models.map((m) => m.id)).toContain(GROK_46_MODEL_ID);
+      expect(models.map((m) => m.id)).toContain(FOUNDRY_GPT_LUNA_MODEL_ID);
       expect(models.map((m) => m.id)).toContain(DEEPSEEK_FLASH_MODEL_ID);
     });
 
@@ -86,12 +94,15 @@ describe("Platform Grok environment-based visibility", () => {
 
       const providers = getPlatformProviders();
       expect(providers.map((p) => p.id)).not.toContain(PLATFORM_XAI_PROVIDER_ID);
-      expect(providers.map((p) => p.id)).toEqual([PLATFORM_DEEPSEEK_PROVIDER_ID]);
+      expect(providers.map((p) => p.id)).toEqual([
+        PLATFORM_FOUNDRY_PROVIDER_ID,
+        PLATFORM_DEEPSEEK_PROVIDER_ID,
+      ]);
 
       const models = getPlatformModels();
       expect(models.map((m) => m.id)).not.toContain(GROK_46_MODEL_ID);
-      expect(models.map((m) => m.id)).toEqual([DEEPSEEK_FLASH_MODEL_ID]);
-      expect(models[0]?.role).toBe("default");
+      expect(models.map((m) => m.id)).toEqual([FOUNDRY_GPT_LUNA_MODEL_ID, DEEPSEEK_FLASH_MODEL_ID]);
+      expect(models.find((m) => m.id === DEEPSEEK_FLASH_MODEL_ID)?.role).toBe("default");
     });
 
     it("returns empty Grok API key and null credentials in production", () => {
@@ -161,6 +172,62 @@ describe("Platform Grok environment-based visibility", () => {
       const config = defaultAiStoredConfig();
       const target = resolveChatTarget(config);
       expect(target.modelId).toBe(DEEPSEEK_FLASH_MODEL_ID);
+    });
+  });
+
+  describe("Azure Foundry Responses model", () => {
+    beforeEach(() => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AGENT_GROK_AZURE_API_KEY", "test-grok-key");
+      vi.stubEnv("AGENT_DEEPSEEK_AZURE_API_KEY", "test-deepseek-key");
+    });
+
+    it("falls back to the DeepSeek Azure key when Foundry has no dedicated key", () => {
+      expect(getPlatformFoundryApiKey()).toBe("test-deepseek-key");
+      expect(platformFoundryHasKey()).toBe(true);
+    });
+
+    it("resolves Foundry GPT-5.6 Luna to the resource Responses API", () => {
+      const config = defaultAiStoredConfig();
+      const target = resolveChatTarget({
+        ...config,
+        mode: "manual",
+        selectedModelId: FOUNDRY_GPT_LUNA_MODEL_ID,
+      });
+      expect(target.modelId).toBe(FOUNDRY_GPT_LUNA_MODEL_ID);
+      expect(target.model).toBe("gpt-5.6-luna");
+      expect(target.api).toBe("responses");
+      expect(target.url).toBe("https://projectfairlx-resource.services.ai.azure.com/openai/v1/responses");
+      expect(target.headers["api-key"]).toBe("test-deepseek-key");
+    });
+
+    it("remaps the previous Foundry DeepSeek placeholder to GPT-5.6 Luna", () => {
+      const merged = mergePlatformAiConfig({
+        ...defaultAiStoredConfig(),
+        mode: "manual",
+        selectedModelId: LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID,
+      });
+      expect(merged.selectedModelId).toBe(FOUNDRY_GPT_LUNA_MODEL_ID);
+      expect(merged.models.some((model) => model.id === LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID)).toBe(false);
+      expect(merged.models.some((model) => model.id === FOUNDRY_GPT_LUNA_MODEL_ID)).toBe(true);
+    });
+
+    it("strips a pasted /openai/v1/responses URL down to the resource root", () => {
+      expect(
+        normalizeAzureFoundryBaseUrl(
+          "https://projectfairlx-resource.services.ai.azure.com/openai/v1/responses",
+        ),
+      ).toBe("https://projectfairlx-resource.services.ai.azure.com");
+
+      vi.stubEnv(
+        "AGENT_FOUNDRY_AZURE_ENDPOINT",
+        "https://projectfairlx-resource.services.ai.azure.com/openai/v1/responses",
+      );
+      vi.stubEnv("AGENT_FOUNDRY_AZURE_API_KEY", "test-foundry-key");
+      const creds = getPlatformProviderCredentials(PLATFORM_FOUNDRY_PROVIDER_ID);
+      expect(creds?.baseUrl).toBe("https://projectfairlx-resource.services.ai.azure.com");
+      expect(creds?.apiKey).toBe("test-foundry-key");
+      expect(creds?.api).toBe("responses");
     });
   });
 

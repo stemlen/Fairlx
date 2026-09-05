@@ -25,6 +25,20 @@ import { toPublicMcpConfig } from "./public-mcp";
 import { matchingAutomations, searchAgentIndex } from "./search";
 import { HARNESS_TO_MCP } from "./parse-tool-calls";
 import { compactJsonString, unwrapMcpToolContent } from "./truncate";
+import {
+  MAX_PROJECT_DOCS_PER_TURN,
+  docPackCompletePayload,
+  emptyDocTurnLimits,
+  hasRequiredWebResearch,
+  noteWebResearch,
+  releaseDocCreateSlot,
+  researchRequiredPayload,
+  reserveDocCreateSlot,
+  reserveWebFetchSlot,
+  webFetchCapPayload,
+  type DocTurnLimits,
+} from "./doc-turn-limits";
+import { fetchPublicPage, searchPublicWeb } from "./web-research";
 import { attachedSearchPayload, extractAttachedFiles } from "./attachments";
 import { catalogForCapability, missingCapabilities } from "../plugins/catalog";
 import { sendMailViaPlugin } from "../plugins/mail";
@@ -65,7 +79,10 @@ export type ToolExecutionContext = {
   allowPersonalSave?: boolean;
   plugins?: AgentPluginConnection[];
   sourcePrompt?: string;
+  turnLimits?: DocTurnLimits;
 };
+
+export { MAX_PROJECT_DOCS_PER_TURN } from "./doc-turn-limits";
 
 export type ToolExecutionResult = {
   content: string;
@@ -106,11 +123,21 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   web_search: {
-    description: "Search the public web via DuckDuckGo instant answers.",
+    description:
+      "Search Wikipedia and the public web. Use several distinct queries (market, competitors, users, regulations). Then web_fetch the best URLs. Required before creating project docs.",
     parameters: {
       type: "object",
       properties: { query: { type: "string" } },
       required: ["query"],
+    },
+  },
+  web_fetch: {
+    description:
+      "Fetch a public http(s) page and return visible text for research. Use after web_search. Do not fetch localhost or private IPs.",
+    parameters: {
+      type: "object",
+      properties: { url: { type: "string" } },
+      required: ["url"],
     },
   },
   database_query: {
@@ -180,7 +207,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   delegate_agent: {
     description:
-      "Delegate one subject to a specialist. Call multiple times in one step. Set subject to a spec heading (one module). Planner = timeline; builder = create that subject's work; ops = assign a percent.",
+      "Delegate one subject to a specialist. Independent work MUST be multiple delegate_agent calls in the same step so they run in parallel. Set subject to a spec heading (one module). Planner = timeline; builder = create that subject's work; ops = assign a percent. Do not delegate once per PRD/FRD/BRD — documentation is one builder or the orchestrator.",
     parameters: {
       type: "object",
       properties: {
@@ -531,6 +558,38 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function isDocCreateTool(name: string, parsed: Record<string, unknown>): boolean {
+  if (name === "fairlx_doc_create") return true;
+  if (name !== "mcp_call") return false;
+  const tool = asString(parsed.tool || parsed.name || parsed.method);
+  return tool === "fairlx_doc_create";
+}
+
+function researchRequiredResult(runId: string, calls: number): ToolExecutionResult {
+  const payload = researchRequiredPayload(calls);
+  return {
+    content: JSON.stringify(payload),
+    event: event(runId, "mcp_call", "Research required before saving", payload.instruction, payload),
+  };
+}
+
+function ensureTurnLimits(ctx: ToolExecutionContext): DocTurnLimits {
+  const limits = ctx.turnLimits ?? emptyDocTurnLimits();
+  if (typeof limits.webResearchCalls !== "number") limits.webResearchCalls = 0;
+  if (typeof limits.docCreates !== "number") limits.docCreates = 0;
+  if (typeof limits.webFetches !== "number") limits.webFetches = 0;
+  ctx.turnLimits = limits;
+  return limits;
+}
+
+function tooManyDocsResult(runId: string, createdThisTurn: number): ToolExecutionResult {
+  const payload = docPackCompletePayload(createdThisTurn);
+  return {
+    content: JSON.stringify(payload),
+    event: event(runId, "mcp_call", "Documentation pack complete", payload.instruction, payload),
+  };
+}
+
 export function applyScopeDefaults(args: Record<string, unknown>, ctx: ToolExecutionContext): Record<string, unknown> {
   const next = { ...args };
   const rawWs = asString(next.workspaceId);
@@ -565,30 +624,21 @@ function matchesQuery(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(query.toLowerCase());
 }
 
-async function duckDuckGo(query: string): Promise<unknown> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) return { error: `DuckDuckGo returned ${response.status}` };
-    return await response.json();
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Web search failed" };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export async function executeTool(
   name: string,
   args: unknown,
   ctx: ToolExecutionContext,
 ): Promise<ToolExecutionResult> {
   const parsed = applyScopeDefaults(parseArgs(args), ctx);
+  const limits = ensureTurnLimits(ctx);
+  if (isDocCreateTool(name, parsed)) {
+    if (!hasRequiredWebResearch(limits)) {
+      return researchRequiredResult(ctx.runId, limits.webResearchCalls);
+    }
+    if (name === "fairlx_doc_create" && limits.docCreates >= MAX_PROJECT_DOCS_PER_TURN) {
+      return tooManyDocsResult(ctx.runId, limits.docCreates);
+    }
+  }
   if (name.startsWith("fairlx_")) {
     const inner = await executeTool(
       "mcp_call",
@@ -683,34 +733,60 @@ export async function executeTool(
       };
     }
     case "web_search": {
-      const result = await duckDuckGo(query || "fairlx");
-      const payload = { query, result };
-      const heading =
-        result && typeof result === "object" && "Heading" in result
-          ? asString((result as Record<string, unknown>).Heading)
-          : "";
-      const abstract =
-        result && typeof result === "object" && "AbstractText" in result
-          ? asString((result as Record<string, unknown>).AbstractText)
-          : "";
-      const relatedRaw =
-        result && typeof result === "object" && Array.isArray((result as { RelatedTopics?: unknown }).RelatedTopics)
-          ? ((result as { RelatedTopics: Array<{ Text?: string; FirstURL?: string }> }).RelatedTopics || [])
-          : [];
+      if (!query.trim()) {
+        const payload = { error: "query is required" };
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "web_search", "Web search missing query", payload.error, payload),
+        };
+      }
+      const result = await searchPublicWeb(query);
+      const limits = ensureTurnLimits(ctx);
+      noteWebResearch(limits);
+      const payload = {
+        query: result.query,
+        hits: result.hits,
+        extracts: result.extracts,
+        hint:
+          result.hits.length === 0
+            ? "No hits. Try a more specific query, then web_fetch known public URLs (Wikipedia, vendor docs, regulations)."
+            : hasRequiredWebResearch(limits)
+              ? "Research bar is met. Fetch at most two more pages if needed, then fairlx_doc_create the PRD. Do not fairlx_work_item_get each epic."
+              : "web_fetch the most relevant URLs and cite them in Sources. Do not save a document until you have done this for several queries.",
+      };
       return {
-        content: JSON.stringify({
-          query,
-          heading,
-          abstract,
-          related: relatedRaw.slice(0, 8).map((topic) => ({ text: topic.Text, url: topic.FirstURL })),
-        }),
+        content: JSON.stringify(payload),
         event: event(
           runId,
           "web_search",
-          query ? `Web search: ${query}` : "Web search",
-          abstract || heading || undefined,
-          payload,
+          `Web search: ${query}`,
+          result.hits[0]?.title || `${result.hits.length} hits`,
+          { query, hits: result.hits.length, extracts: result.extracts.length },
         ),
+      };
+    }
+    case "web_fetch": {
+      const url = asString(parsed.url || parsed.href || query);
+      const fetchLimits = ensureTurnLimits(ctx);
+      if (!reserveWebFetchSlot(fetchLimits)) {
+        const payload = webFetchCapPayload(fetchLimits.webFetches);
+        return {
+          content: JSON.stringify(payload),
+          event: event(runId, "web_fetch", "Fetch cap reached", payload.instruction, payload),
+        };
+      }
+      const fetched = await fetchPublicPage(url);
+      if ("error" in fetched) {
+        if (fetchLimits.webFetches > 0) fetchLimits.webFetches -= 1;
+        return {
+          content: JSON.stringify(fetched),
+          event: event(runId, "web_fetch", "Web fetch failed", fetched.error, fetched),
+        };
+      }
+      noteWebResearch(ensureTurnLimits(ctx));
+      return {
+        content: JSON.stringify(fetched),
+        event: event(runId, "web_fetch", `Fetched ${fetched.title || url}`, url, { url: fetched.url }),
       };
     }
     case "database_query": {
@@ -826,6 +902,13 @@ export async function executeTool(
       }
       const effectiveArgs = applyScopeDefaults(callArgs, ctx);
       console.log(`[Fairlx Agent] 🛠️ Calling MCP Tool -> Server: "${server}", Tool: "${tool}", Args:`, JSON.stringify(effectiveArgs));
+      const limits = ensureTurnLimits(ctx);
+      if (tool === "fairlx_doc_create" && !hasRequiredWebResearch(limits)) {
+        return researchRequiredResult(runId, limits.webResearchCalls);
+      }
+      if (tool === "fairlx_doc_create" && !reserveDocCreateSlot(limits)) {
+        return tooManyDocsResult(runId, limits.docCreates);
+      }
       try {
         const result = await callMcpServerTool({
           server,
@@ -839,6 +922,7 @@ export async function executeTool(
           event: event(runId, "mcp_call", tool.replace(/^fairlx_/, "").replaceAll("_", " "), undefined, { server, tool }),
         };
       } catch (error) {
+        if (tool === "fairlx_doc_create") releaseDocCreateSlot(limits);
         const errorMessage = error instanceof Error ? error.message : "MCP call failed";
         console.error(`[Fairlx Agent] ❌ MCP Tool "${tool}" failed:`, errorMessage, { server, args: effectiveArgs });
         const payload = { server, tool, error: errorMessage };

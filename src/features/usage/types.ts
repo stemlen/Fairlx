@@ -177,10 +177,19 @@ export type UsageEventMetadata = {
     // AI-specific metadata
     model?: string;
     tokensUsed?: number;          // Kept for backward compatibility
-    promptTokens?: number;        // Actual input tokens from Gemini usageMetadata
-    completionTokens?: number;    // Actual output tokens from Gemini usageMetadata
+    promptTokens?: number;        // Actual input tokens
+    completionTokens?: number;    // Actual output tokens
+    cachedTokens?: number;        // Cached / cache-read input tokens
     totalTokens?: number;         // promptTokens + completionTokens
-    costUSD?: number;             // Exact USD cost based on model-aware pricing
+    costUSD?: number;             // Customer USD cost (provider × 15% markup)
+    providerCostUSD?: number;     // Provider list cost before markup
+    markup?: number;              // e.g. 1.15
+    billed?: boolean;
+    estimated?: boolean;
+    pricingSource?: string;
+    inputPricePerMillionTokens?: number;
+    outputPricePerMillionTokens?: number;
+    cachedInputPricePerMillionTokens?: number;
     aiTier?: "economy" | "standard" | "flagship"; // Model pricing tier
     isAI?: boolean;               // Flag for AI events (for ledger cost routing)
 

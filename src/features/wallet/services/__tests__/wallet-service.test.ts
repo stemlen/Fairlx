@@ -55,6 +55,21 @@ vi.mock("@/lib/appwrite", () => ({
 vi.mock("@/features/billing/services/billing-service", () => ({
     setupOrganizationBilling: vi.fn().mockResolvedValue({ $id: "mock_ba_org" }),
     setupPersonalBilling: vi.fn().mockResolvedValue({ $id: "mock_ba_user" }),
+    suspendAccount: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/features/organizations/audit", () => ({
+    OrgAuditAction: { ACCOUNT_LOCKED: "account_locked" },
+    logOrgAudit: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/billing-logger", () => ({
+    billingLog: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        alert: vi.fn(),
+    },
 }));
 
 vi.mock("@/config", () => ({
@@ -62,6 +77,7 @@ vi.mock("@/config", () => ({
     WALLETS_ID: "test-wallets",
     WALLET_TRANSACTIONS_ID: "test-transactions",
     BILLING_ACCOUNTS_ID: "test-billing-accounts",
+    BILLING_AUDIT_LOGS_ID: "test-billing-audit",
     WALLET_DAILY_TOPUP_LIMIT: 50000000, // 5 lakh in paise
 }));
 
@@ -310,17 +326,17 @@ describe("Wallet Service", () => {
             const dbs = createMockDatabases({ balance: 5000, lockedBalance: 0 });
             // Rate limit check returns no recent debits
             dbs.listDocuments.mockResolvedValueOnce({ total: 0, documents: [] });
-            // getDocument returns wallet with 5000 balance
+            // already at lock floor
             dbs.getDocument
-                .mockResolvedValueOnce({ ...mockWallet, balance: 5000, version: 5 });
+                .mockResolvedValueOnce({ ...mockWallet, balance: -20, version: 5 });
 
-            const result = await deductFromWallet(dbs as never, "wallet_123", 10000, {
+            const result = await deductFromWallet(dbs as never, "wallet_123", 1, {
                 referenceId: "ref_big",
                 idempotencyKey: "key_big",
             });
 
             expect(result.success).toBe(false);
-            expect(result.error).toBe("insufficient_balance");
+            expect(result.error).toBe("account_locked");
         });
 
         it("should enforce rate limiting", async () => {
@@ -583,51 +599,74 @@ describe("Wallet Service", () => {
     });
 
     // ========================================================================
-    // Negative balance invariant
+    // Overdraft and -$20 lock
     // ========================================================================
 
-    describe("Negative Balance Invariant", () => {
-        it("should never allow balance to go negative via deduction", async () => {
+    describe("Wallet overdraft", () => {
+        it("should allow balance to go negative above the -$20 lock", async () => {
             const { deductFromWallet } = await import("../wallet-service");
-            const dbs = createMockDatabases({ balance: 100 });
-            // Rate limit passes
+            const dbs = createMockDatabases({ balance: 5 });
+            dbs.listDocuments.mockResolvedValueOnce({ total: 0, documents: [] });
+            dbs.getDocument
+                .mockResolvedValueOnce({ ...mockWallet, balance: 5, lockedBalance: 0, version: 5, billingAccountId: "ba_1" })
+                .mockResolvedValueOnce({ ...mockWallet, version: 6, balance: -3 });
+
+            const result = await deductFromWallet(dbs as never, "wallet_123", 8, {
+                referenceId: "ref_od",
+                idempotencyKey: "key_od",
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.transaction?.balanceAfter).toBe(-3);
+            expect(result.locked).toBe(false);
+        });
+
+        it("should lock the account when usage drives the wallet to -$20 or below", async () => {
+            const { deductFromWallet } = await import("../wallet-service");
+            const { suspendAccount } = await import("@/features/billing/services/billing-service");
+            const dbs = createMockDatabases({ balance: 1 });
+            dbs.listDocuments.mockResolvedValueOnce({ total: 0, documents: [] });
+            dbs.getDocument
+                .mockResolvedValueOnce({
+                    ...mockWallet,
+                    balance: 1,
+                    lockedBalance: 0,
+                    version: 5,
+                    billingAccountId: "ba_1",
+                    organizationId: "org_1",
+                    userId: "user_1",
+                })
+                .mockResolvedValueOnce({ ...mockWallet, version: 6, balance: -24 });
+
+            const result = await deductFromWallet(dbs as never, "wallet_123", 25, {
+                referenceId: "ref_lock",
+                idempotencyKey: "key_lock",
+            });
+
+            expect(result.success).toBe(true);
+            expect(result.transaction?.balanceAfter).toBe(-24);
+            expect(result.locked).toBe(true);
+            expect(suspendAccount).toHaveBeenCalled();
+        });
+
+        it("should reject further usage once the wallet is already at -$20", async () => {
+            const { deductFromWallet } = await import("../wallet-service");
+            const dbs = createMockDatabases({ balance: -20 });
             dbs.listDocuments.mockResolvedValueOnce({ total: 0, documents: [] });
             dbs.getDocument.mockResolvedValueOnce({
                 ...mockWallet,
-                balance: 100,
+                balance: -20,
                 lockedBalance: 0,
                 version: 5,
             });
 
-            const result = await deductFromWallet(dbs as never, "wallet_123", 200, {
-                referenceId: "ref_neg",
-                idempotencyKey: "key_neg",
+            const result = await deductFromWallet(dbs as never, "wallet_123", 1, {
+                referenceId: "ref_floor",
+                idempotencyKey: "key_floor",
             });
 
             expect(result.success).toBe(false);
-            expect(result.error).toBe("insufficient_balance");
-        });
-
-        it("should account for locked balance when checking available balance", async () => {
-            const { deductFromWallet } = await import("../wallet-service");
-            const dbs = createMockDatabases({ balance: 10000, lockedBalance: 8000 });
-            // Rate limit passes
-            dbs.listDocuments.mockResolvedValueOnce({ total: 0, documents: [] });
-            dbs.getDocument.mockResolvedValueOnce({
-                ...mockWallet,
-                balance: 10000,
-                lockedBalance: 8000,
-                version: 5,
-            });
-
-            // Available = 10000 - 8000 = 2000, trying to deduct 5000
-            const result = await deductFromWallet(dbs as never, "wallet_123", 5000, {
-                referenceId: "ref_locked",
-                idempotencyKey: "key_locked",
-            });
-
-            expect(result.success).toBe(false);
-            expect(result.error).toBe("insufficient_balance");
+            expect(result.error).toBe("account_locked");
         });
     });
 });

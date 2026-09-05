@@ -29,7 +29,10 @@ export type GithubRepoOk = {
   repoId?: string;
 };
 
-export type GithubRepoErr = { error: string; capability?: AgentCapability };
+export type GithubRepoErr = { error: string; capability?: AgentCapability; skipped?: boolean };
+
+export const NO_LINKED_GITHUB_REPO =
+  "No GitHub repository is linked. Skip code analysis and continue from Fairlx work items and sprints. Do not create technical_spec or api_doc until a repo is added. Planning docs (prd, frd, user_stories, user_guide, test_plan) are fine.";
 
 export async function resolveGithubRepo(params: {
   databases?: Databases;
@@ -58,15 +61,15 @@ export async function resolveGithubRepo(params: {
     }
     return false;
   });
-  if (!match) match = params.context.githubRepos[0];
+  if (!match && !params.projectId) match = params.context.githubRepos[0];
 
   const owner = params.owner || match?.owner || extraOwner || "";
   const repo = params.repo || match?.repositoryName || extraRepo || "";
   const branch = params.branch || match?.branch || "main";
   if (!owner || !repo) {
     return {
-      error: "No GitHub repository is linked. Connect GitHub on the project or pass owner/repo.",
-      capability: "code.read",
+      error: NO_LINKED_GITHUB_REPO,
+      skipped: true,
     };
   }
 
@@ -154,7 +157,9 @@ export async function githubWriteFile(params: {
   projectId?: string;
 }) {
   const resolved = await resolveGithubRepo(params);
-  if ("error" in resolved) return resolved;
+  if ("error" in resolved) {
+    return resolved.skipped ? { ...resolved, capability: "code.write" as const } : resolved;
+  }
   const branch = params.branch || `fairlx/${Date.now().toString(36)}`;
   const result = await resolved.api.putFile({
     owner: resolved.owner,
@@ -187,7 +192,9 @@ export async function githubOpenPullRequest(params: {
   projectId?: string;
 }) {
   const resolved = await resolveGithubRepo(params);
-  if ("error" in resolved) return resolved;
+  if ("error" in resolved) {
+    return resolved.skipped ? { ...resolved, capability: "code.write" as const } : resolved;
+  }
   const pr = await resolved.api.createPullRequest({
     owner: resolved.owner,
     repo: resolved.repo,
@@ -219,7 +226,9 @@ export async function githubCommitFilesAndOpenPr(params: {
   onProgress?: (step: string, percent: number) => Promise<void> | void;
 }) {
   const resolved = await resolveGithubRepo(params);
-  if ("error" in resolved) return resolved;
+  if ("error" in resolved) {
+    return resolved.skipped ? { ...resolved, capability: "code.write" as const } : resolved;
+  }
   const branch = params.branch || `fairlx/${Date.now().toString(36)}`;
   const written: Array<{ path: string; sha: string; html_url?: string }> = [];
   for (let index = 0; index < params.files.length; index += 1) {

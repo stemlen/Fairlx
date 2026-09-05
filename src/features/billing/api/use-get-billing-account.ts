@@ -6,6 +6,7 @@ interface UseGetBillingAccountOptions {
     userId?: string;
     organizationId?: string;
     enabled?: boolean;
+    refetchOnMount?: boolean | "always";
 }
 
 interface BillingAccountResponse {
@@ -26,7 +27,7 @@ interface BillingAccountResponse {
  * Hook to get billing account for user or organization
  */
 export function useGetBillingAccount(options: UseGetBillingAccountOptions = {}) {
-    const { userId, organizationId, enabled = true } = options;
+    const { userId, organizationId, enabled = true, refetchOnMount } = options;
 
     return useQuery<BillingAccountResponse>({
         queryKey: ["billing-account", { userId, organizationId }],
@@ -46,5 +47,7 @@ export function useGetBillingAccount(options: UseGetBillingAccountOptions = {}) 
             return response.json() as Promise<BillingAccountResponse>;
         },
         enabled,
+        refetchOnMount,
+        refetchOnWindowFocus: true,
     });
 }

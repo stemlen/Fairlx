@@ -79,13 +79,13 @@ export function OrganizationAuditLogs({ organizationId }: OrganizationAuditLogsP
     };
 
     const getActionColor = (action: string) => {
-        if (action.includes("deleted") || action.includes("removed")) return "text-red-600 bg-red-100";
+        if (action.includes("deleted") || action.includes("removed") || action.includes("locked")) return "text-red-600 bg-red-100";
         if (action.includes("created") || action.includes("added")) return "text-emerald-600 bg-emerald-100";
         return "text-blue-600 bg-blue-100";
     };
 
     const getBadgeClass = (action: string) => {
-        if (action.includes("deleted") || action.includes("removed"))
+        if (action.includes("deleted") || action.includes("removed") || action.includes("locked"))
             return "bg-red-100 text-red-700 border-red-200";
         if (action.includes("created") || action.includes("added"))
             return "bg-emerald-100 text-emerald-700 border-emerald-200";

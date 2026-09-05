@@ -10,7 +10,7 @@ import type {
 const HARNESS_WRITES = new Set(["create_project", "mail_send", "github_write_file", "github_open_pr"]);
 const WRITE_NAME_RE = /_(create|update|delete|add|set|start|complete|split|sync|remove|mark_read)$/i;
 const PRIVILEGED_NAME_RE =
-  /(mail_send|github_write_file|github_open_pr|create_project|project_create|_delete|_remove|member_add|member_invite|workspace_member|organization_update|security_review|notify)/i;
+  /(mail_send|github_write_file|github_open_pr|create_project|project_create|_delete|_remove|member_add|member_invite|workspace_member|organization_update|security_review|notify|doc_create|doc_update)/i;
 
 export function mcpToolNameFromCall(call: AgentToolCall): string | undefined {
   if (call.name !== "mcp_call" && call.name !== "create_project") {
@@ -73,6 +73,12 @@ export function confirmationSummary(call: AgentToolCall): string {
     .replace(/^fairlx_/, "")
     .replaceAll("_", " ")
     .trim();
+  if (/doc_create/i.test(mcpName) && label) {
+    return `Save project document "${label}"?`;
+  }
+  if (/doc_update/i.test(mcpName) && label) {
+    return `Update project document "${label}"?`;
+  }
   if (/work_item_create/i.test(mcpName) && label) {
     const type = String(nested.type || "Task").toLowerCase();
     const formattedType = type.charAt(0).toUpperCase() + type.slice(1);

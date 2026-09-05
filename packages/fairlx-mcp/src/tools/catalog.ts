@@ -1,5 +1,6 @@
 import type { AuthContext } from "../auth/context";
 import { isToolAllowedForAuth } from "../auth/scopes";
+import { PROJECT_DOC_MARKDOWN_GUIDE } from "../lib/project-doc-markdown";
 import type { McpToolDefinition } from "../protocol/types";
 import { PERMISSIONS } from "../runtime/types";
 
@@ -122,7 +123,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_sprint_list",
-    description: "List sprints in a project",
+    description:
+      "List sprints in a project. Call once and omit status — do not fan out ACTIVE, PLANNED, and ALL. status ALL is ignored. For assign/unassign, skip this and call fairlx_work_item_bulk_update.",
     inputSchema: {
       type: "object",
       properties: { projectId: id, status: { type: "string" }, limit: { type: "number" }, cursorAfter: { type: "string" } },
@@ -348,7 +350,7 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   {
     name: "fairlx_work_item_bulk_update",
     description:
-      "Assign or update many work items in one call. For a share of the backlog (60%, half), pass assignPercent and assigneeIds (name or email) — do not pick workItemIds and do not list again. To parent every story/task under an epic, pass assignEpics: true and projectId (matches by title; leftover items round-robin). Otherwise pass workItemIds as keys (SCHO-1).",
+      "Assign or update many work items in one call. Do not list items first. To unassign every work item in every sprint, pass clearAssignees: true and projectId (assignPercent 0 is the same). To assign every item in a sprint to one person, pass sprintId as the sprint name or number (Sprint 1) and assigneeIds: [\"Name\"] — that replaces assignees and does not need workItemIds. For a share of the project (60%, half), pass assignPercent 1-100 and assigneeIds. To parent every story/task under an epic, pass assignEpics: true and projectId. Otherwise pass workItemIds as keys (SCHO-1).",
     inputSchema: {
       type: "object",
       properties: {
@@ -361,10 +363,19 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
         assignPercent: {
           type: "number",
           description:
-            "Target share of the project backlog for this person (60 means 13 of 22). Uses board Unassigned items first. Do not invent extra keys.",
+            "0 clears assignees in the scope. 1-100 is a target share of the project for this person (60 means 13 of 22). Uses board Unassigned items first. Do not invent extra keys.",
+        },
+        clearAssignees: {
+          type: "boolean",
+          description:
+            "Remove every assignee. With only projectId, clears items in every sprint (not the backlog). With sprintId, clears that sprint. Does not need workItemIds.",
         },
         status: { type: "string" },
-        sprintId: id,
+        sprintId: {
+          type: "string",
+          description:
+            "Sprint id, name, or number (Sprint 1). Without workItemIds this is the set of items to update, not a field to write.",
+        },
         assigneeIds: {
           type: "array",
           items: { type: "string" },
@@ -543,18 +554,40 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_doc_create",
-    description: "Create a project document. Extra content is stored in description; fileId is mcp-inline when no file is uploaded.",
+    description:
+      "Create one substantial Notion-quality researched markdown study after web_search and web_fetch. At most 2 docs per turn. Each body must be about 1800+ words with 8+ sections, Sources that cite at least 3 public http URLs, Steps, and Risks. Creates without prior web research return research_required — do not save a stub. Creating the same category updates the existing AI doc. In staged mode this waits for Accept.",
     inputSchema: {
       type: "object",
       properties: {
         projectId: id,
         title: { type: "string" },
-        content: { type: "string" },
-        category: { type: "string" },
+        content: {
+          type: "string",
+          description: `Full markdown body. Required. ${PROJECT_DOC_MARKDOWN_GUIDE}`,
+        },
+        category: {
+          type: "string",
+          enum: [
+            "prd",
+            "frd",
+            "technical_spec",
+            "user_stories",
+            "design_doc",
+            "architecture",
+            "api_doc",
+            "test_plan",
+            "user_guide",
+            "srs",
+            "brd",
+            "release_notes",
+            "other",
+          ],
+        },
+        sources: { type: "array", items: { type: "string" }, description: "Paths, work-item keys, URLs, or doc titles used." },
         tags: { type: "array", items: { type: "string" } },
         idempotencyKey,
       },
-      required: ["projectId", "title"],
+      required: ["projectId", "title", "content"],
     },
     riskTier: 2,
     rateClass: "write",
@@ -563,7 +596,8 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
   },
   {
     name: "fairlx_doc_update",
-    description: "Update a project document metadata / description",
+    description:
+      "Update a project document. If content is sent, it must be the full Notion-quality markdown body (title, italic tagline, sections, lists, callouts, Sources/Steps/Risks).",
     inputSchema: {
       type: "object",
       properties: {
@@ -855,6 +889,74 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
         organizationId: id,
       },
       required: ["name"],
+    },
+    riskTier: 3,
+    rateClass: "write",
+    scopes: ["admin:manage"],
+  },
+  {
+    name: "fairlx_department_list",
+    description:
+      "List organization departments and the org permissions each department owns. Departments are how Fairlx grants org-level access (billing, members, settings). Pass workspaceId or organizationId.",
+    inputSchema: {
+      type: "object",
+      properties: { workspaceId: id, organizationId: id },
+    },
+    riskTier: 1,
+    rateClass: "read",
+    scopes: ["admin:manage"],
+  },
+  {
+    name: "fairlx_department_create",
+    description:
+      "Create one or more organization departments and optionally attach org permission keys (org.members.view, org.billing.manage, …). Requires org.departments.manage. Wait for the user to Accept. Pass departments=[{name, permissions}] to create several at once.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: id,
+        organizationId: id,
+        name: { type: "string", description: "Department name when creating one" },
+        description: { type: "string" },
+        color: { type: "string", description: "Hex color like #4F46E5" },
+        permissions: {
+          type: "array",
+          items: { type: "string" },
+          description: "Org permission keys to grant this department",
+        },
+        departments: {
+          type: "array",
+          description: "Create several departments in one call",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              description: { type: "string" },
+              color: { type: "string" },
+              permissions: { type: "array", items: { type: "string" } },
+            },
+            required: ["name"],
+          },
+        },
+      },
+    },
+    riskTier: 3,
+    rateClass: "write",
+    scopes: ["admin:manage"],
+  },
+  {
+    name: "fairlx_department_permission_add",
+    description:
+      "Add org permission keys to an existing department (by name or id). Requires org.departments.manage. Wait for the user to Accept.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: id,
+        organizationId: id,
+        departmentId: id,
+        departmentName: { type: "string" },
+        permissionKey: { type: "string" },
+        permissions: { type: "array", items: { type: "string" } },
+      },
     },
     riskTier: 3,
     rateClass: "write",
@@ -1381,10 +1483,45 @@ export const TOOL_CATALOG: McpToolDefinition[] = [
     rateClass: "read",
     scopes: [],
   },
+  {
+    name: "fairlx_usage_summary",
+    description:
+      "Get billed usage, wallet balance, and AI spend for this workspace or the organization. Returns totals, cost by purpose (agent chat, docs, GitHub, traffic, storage), and cost by model (Grok 4.6, GPT-5.6 Luna, DeepSeek). Use for billing, usage, spend, invoices, wallet, org bill, or “how much did Grok/Luna cost”. Pass organizationId (or scope=organization) for the org bill; omit ids to use the current workspace. period is YYYY-MM. Do not search the harness for billing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: id,
+        organizationId: id,
+        scope: { type: "string", description: "workspace or organization" },
+        period: { type: "string", description: "Billing month YYYY-MM. Defaults to the current month." },
+      },
+    },
+    riskTier: 1,
+    rateClass: "read",
+    scopes: ["billing:read"],
+  },
 ];
 
+const TOOL_NAME_ALIASES: Record<string, string> = {
+  create_department: "fairlx_department_create",
+  org_department_create: "fairlx_department_create",
+  department_create: "fairlx_department_create",
+  list_departments: "fairlx_department_list",
+  department_list: "fairlx_department_list",
+  add_permission: "fairlx_department_permission_add",
+  create_permission: "fairlx_department_permission_add",
+  assign_permission: "fairlx_department_permission_add",
+  permission_grant: "fairlx_department_permission_add",
+  department_permission_add: "fairlx_department_permission_add",
+  usage_summary: "fairlx_usage_summary",
+  billing_usage: "fairlx_usage_summary",
+  org_bill: "fairlx_usage_summary",
+  wallet_get: "fairlx_usage_summary",
+};
+
 export function getToolDefinition(name: string): McpToolDefinition | undefined {
-  return TOOL_CATALOG.find((tool) => tool.name === name);
+  const canonical = TOOL_NAME_ALIASES[name] || TOOL_NAME_ALIASES[name.replace(/^fairlx_/, "")] || name;
+  return TOOL_CATALOG.find((tool) => tool.name === name || tool.name === canonical);
 }
 
 export function listToolsForClient(auth?: Pick<AuthContext, "scopes" | "projectPermissions">) {

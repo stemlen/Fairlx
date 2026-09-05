@@ -2,12 +2,12 @@ import type { AgentCapability } from "../types";
 
 export function githubCapabilityGap(result: unknown): AgentCapability | undefined {
   if (!result || typeof result !== "object") return undefined;
-  const rec = result as { error?: string; capability?: AgentCapability };
-  if (typeof rec.error !== "string") return undefined;
+  const rec = result as { error?: string; capability?: AgentCapability; skipped?: boolean };
   if (rec.capability === "code.write" || rec.capability === "code.read" || rec.capability === "security.review") {
     return rec.capability;
   }
-  if (/token|cannot push|No GitHub|not linked/i.test(rec.error)) return "code.write";
+  if (rec.skipped) return undefined;
+  if (typeof rec.error === "string" && /token|cannot push/i.test(rec.error)) return "code.write";
   return undefined;
 }
 

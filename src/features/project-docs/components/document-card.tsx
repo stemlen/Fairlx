@@ -3,7 +3,6 @@
 import {
   FileText,
   MoreVertical,
-  Download,
   Trash2,
   Pencil,
   Archive,
@@ -33,6 +32,8 @@ import { PopulatedProjectDocument, DOCUMENT_CATEGORY_LABELS, DocumentCategory } 
 import { formatFileSize, getFileExtensionLabel } from "../schemas";
 import { useDeleteProjectDocument, useDownloadDocument, useUpdateProjectDocument } from "../api/use-project-docs";
 import { useConfirm } from "@/hooks/use-confirm";
+import { DocumentDownloadMenu } from "./document-download-menu";
+import type { DownloadDocumentFormat } from "../lib/document-file";
 
 interface DocumentCardProps {
   document: PopulatedProjectDocument;
@@ -40,6 +41,7 @@ interface DocumentCardProps {
   projectId: string;
   onEdit?: (document: PopulatedProjectDocument) => void;
   onReplace?: (document: PopulatedProjectDocument) => void;
+  onPreview?: (document: PopulatedProjectDocument) => void;
   isSelected?: boolean;
   onSelect?: () => void;
   isLast?: boolean;
@@ -53,6 +55,7 @@ export const DocumentCard = ({
   projectId,
   onEdit,
   onReplace,
+  onPreview,
   isSelected = false,
   onSelect,
   isLast = false,
@@ -80,11 +83,12 @@ export const DocumentCard = ({
     });
   };
 
-  const handleDownload = () => {
+  const handleDownload = (format: DownloadDocumentFormat) => {
     downloadDocument({
       documentId: document.$id,
       workspaceId,
       fileName: document.title,
+      format,
     });
   };
 
@@ -96,10 +100,8 @@ export const DocumentCard = ({
     });
   };
 
-  const handleOpenInNewTab = () => {
-    if (document.url) {
-      window.open(document.url, "_blank", "noopener,noreferrer");
-    }
+  const handleOpen = () => {
+    onPreview?.(document);
   };
 
   const getFileIcon = () => {
@@ -152,7 +154,7 @@ export const DocumentCard = ({
           ? "bg-primary/5"
           : "hover:bg-muted/50"
           } ${!isLast ? "border-b border-border" : ""}`}
-        onClick={handleOpenInNewTab}
+        onClick={handleOpen}
       >
         {/* Checkbox for selection */}
         <div className="w-5 flex-shrink-0">
@@ -230,22 +232,11 @@ export const DocumentCard = ({
 
         {/* Actions */}
         <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                  onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-                  disabled={isDownloading}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="text-xs">Download</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <DocumentDownloadMenu
+            disabled={isDownloading}
+            onSelect={handleDownload}
+            triggerClassName="h-7 w-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
+          />
 
           {canDelete && (
             <TooltipProvider>
@@ -296,10 +287,17 @@ export const DocumentCard = ({
                 </>
               )}
               {!canEdit && (
-                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownload(); }} className="text-xs">
-                  <Download className="h-3.5 w-3.5 mr-2" />
-                  Download
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownload("md"); }} className="text-xs">
+                    Markdown (.md)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownload("pdf"); }} className="text-xs">
+                    PDF (.pdf)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownload("docx"); }} className="text-xs">
+                    Word document (.docx)
+                  </DropdownMenuItem>
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>

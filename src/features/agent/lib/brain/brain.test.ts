@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compressMessages } from "./compress";
+import { compressMessages, estimatedFittedTokens, fitMessagesForModel } from "./compress";
 import { wantedToolNames, selectToolsForTurn } from "./select";
 import { factsFromTurn, mergeStateKnowledge } from "./write";
 import { filterToolsForSpecialist } from "./isolate";
@@ -28,6 +28,13 @@ describe("selectToolsForTurn", () => {
     expect(wantedToolNames("Send a mail about WEB-12").has("mail_send")).toBe(true);
   });
 
+  it("always keeps core Fairlx MCP board tools", () => {
+    const names = wantedToolNames("hello");
+    expect(names.has("fairlx_work_item_bulk_update")).toBe(true);
+    expect(names.has("fairlx_sprint_list")).toBe(true);
+    expect(names.has("fairlx_work_item_update")).toBe(true);
+  });
+
   it("keeps invite tools and drops mail_send for add-by-email-id prompts", () => {
     const query =
       "add fogef to the project and this mail id is fogefe9321@94an.com and team is developer";
@@ -35,14 +42,16 @@ describe("selectToolsForTurn", () => {
     expect(names.has("fairlx_workspace_member_add")).toBe(true);
     expect(names.has("fairlx_project_member_add")).toBe(true);
     expect(names.has("fairlx_project_team_member_add")).toBe(true);
+    expect(names.has("fairlx_project_team_list")).toBe(true);
     expect(names.has("mail_send")).toBe(false);
   });
 
-  it("keeps bulk assign tools for percent-of-backlog prompts", () => {
-    const names = wantedToolNames("assign 60% of work items to fogef");
-    expect(names.has("fairlx_work_item_list")).toBe(true);
-    expect(names.has("fairlx_work_item_update")).toBe(true);
+  it("keeps bulk assign tools for unassign-all and assign-sprint prompts", () => {
+    const names = wantedToolNames(
+      "remove all assignees for all work items in all sprints and assign all workitems in sprint 1 to Fogef only",
+    );
     expect(names.has("fairlx_work_item_bulk_update")).toBe(true);
+    expect(names.has("fairlx_sprint_list")).toBe(true);
   });
 
   it("keeps sprint create tools for planning prompts", () => {
@@ -70,6 +79,32 @@ describe("selectToolsForTurn", () => {
     expect(names.has("fairlx_organization_get")).toBe(true);
     expect(names.has("fairlx_organization_list")).toBe(true);
   });
+
+  it("selects usage summary for billing and org-bill prompts", () => {
+    expect(wantedToolNames("tell me org bill").has("fairlx_usage_summary")).toBe(true);
+    expect(wantedToolNames("how much billing usage did Grok and Luna use").has("fairlx_usage_summary")).toBe(true);
+  });
+
+  it("selects documentation tools for create-docs prompts", () => {
+    const names = wantedToolNames("create project documentation for this app");
+    expect(names.has("fairlx_doc_create")).toBe(true);
+    expect(names.has("fairlx_doc_list")).toBe(true);
+    expect(names.has("web_search")).toBe(true);
+    expect(names.has("web_fetch")).toBe(true);
+    expect(names.has("github_list_files")).toBe(true);
+    expect(names.has("fairlx_work_item_get")).toBe(false);
+  });
+
+  it("drops github read tools for documentation when no repo is linked", () => {
+    const tools = ["fairlx_doc_create", "github_list_files", "github_read_file", "code_inspect", "fairlx_work_item_list"].map(
+      (name) => tool(name),
+    );
+    const selected = selectToolsForTurn(tools, "create project documentation for this app", { hasGithubRepo: false });
+    const names = selected.map((item) => item.function.name);
+    expect(names).toContain("fairlx_doc_create");
+    expect(names).not.toContain("github_list_files");
+    expect(names).not.toContain("github_read_file");
+  });
 });
 
 describe("compressMessages", () => {
@@ -87,6 +122,25 @@ describe("compressMessages", () => {
     const recentTool = compressed[compressed.length - 1];
     expect(oldTool?.content).toContain("compressed");
     expect(recentTool?.content).toContain("items");
+  });
+});
+
+describe("fitMessagesForModel", () => {
+  it("keeps Wikipedia-sized research fetches under a 72k Grok window", () => {
+    const blob = "W".repeat(20_000);
+    const messages: AgentChatMessage[] = Array.from({ length: 20 }, (_, index) => ({
+      id: String(index),
+      role: index % 2 ? "tool" : "assistant",
+      content: index % 2 ? JSON.stringify({ url: "https://en.wikipedia.org/wiki/X", text: blob }) : "fetching",
+      toolCallId: index % 2 ? `c${index}` : undefined,
+      toolName: index % 2 ? "web_fetch" : undefined,
+      createdAt: new Date().toISOString(),
+    }));
+    const fitted = fitMessagesForModel("system prompt", messages, 8_000);
+    const chars = fitted.reduce((sum, message) => sum + (message.content?.length ?? 0), 0);
+    expect(chars).toBeLessThan(8_000 * 4 * 0.72);
+    expect(estimatedFittedTokens("system prompt", messages, 8_000)).toBeLessThan(8_000);
+    expect(estimatedFittedTokens("system prompt", messages, 72_000)).toBeLessThan(72_000);
   });
 });
 
@@ -122,6 +176,25 @@ describe("isolate", () => {
     expect(names).toContain("fairlx_work_item_create");
     expect(names).not.toContain("mail_send");
     expect(names).not.toContain("delegate_agent");
+  });
+
+  it("lets researchers read Fairlx records but not create documents", () => {
+    const filtered = filterToolsForSpecialist(
+      [
+        tool("delegate_agent"),
+        tool("fairlx_doc_list"),
+        tool("fairlx_doc_create"),
+        tool("web_search"),
+        tool("web_fetch"),
+        tool("fairlx_work_item_list"),
+      ],
+      "researcher",
+    );
+    const names = filtered.map((item) => item.function.name);
+    expect(names).toContain("fairlx_doc_list");
+    expect(names).toContain("web_search");
+    expect(names).toContain("web_fetch");
+    expect(names).not.toContain("fairlx_doc_create");
   });
 });
 

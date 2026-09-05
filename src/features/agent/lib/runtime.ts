@@ -23,14 +23,20 @@ import { ensurePersonalMcp } from "./mcp-bridge";
 import { compileFairlxListIntent } from "./intent-compiler";
 import { extractToolCallsFromText, mergeToolCalls, normalizeAgentToolCall, stripToolCallMarkup } from "./parse-tool-calls";
 import { displayUserContent, isPersonalSessionMode, trainingSaveReady } from "./session-context";
+import { fromResponsesResponse, isResponsesResponse, stripUnsupportedSamplingParams, toResponsesRequest } from "./openai-responses";
+import type { AgentLlmApi } from "./openai-responses";
 import { getPlatformProviderCredentials, overlayPlatformModel } from "./platform-credentials";
 import { buildSystemPrompt } from "./prompt";
 import { isTrainingKickoffContent, isTrainingRun, profileIsTrained } from "./personal-training";
 import { getAiDocument, getMcpDocument, parseAiConfig, parseMcpConfig } from "./store";
 import { decryptSecret } from "./secrets";
 import {
+  canonicalizeToolCall,
   coalescedListMessage,
   collapseWorkItemListFanOut,
+  collapseRedundantReadFanOut,
+  SKIPPED_WORK_ITEM_GET,
+  SKIPPED_WEB_FETCH,
   fingerprintsFromMessages,
   hydrateListSliceCache,
   isFailedToolContent,
@@ -40,27 +46,36 @@ import {
   resolveListSliceCall,
   toolCallFingerprint,
   unwrapListCall,
+  toolsWhenContextIsTight,
 } from "./tool-loop";
 import { executeTool, openaiToolsForTurn, trainingSaveTool } from "./tools";
 import { compactJsonString } from "./truncate";
 import { getRun, listRuns, updateRun } from "./runs";
 import { getPersonalAgent } from "./personal-agent-store";
-import { AGENT_CHAT_TIMEOUT_MS, formatAgentTurnError, withTransientFetchRetry } from "./turn-errors";
+import { AGENT_CHAT_TIMEOUT_MS, formatAgentTurnError, isContextLengthError, withTransientFetchRetry } from "./turn-errors";
 import { sanitizeAssistantVisible } from "./visible-content";
-import { confirmationSummary, findPendingConfirmation, needsConfirmation } from "./write-guard";
 import { extractBoardProjectFromTool } from "./project-launch";
 import { specialistById } from "./graph";
-import { buildSpecialistUserMessage } from "./attachments";
-import { capSpecialistResult, compressMessages, factsFromTurn, filterToolsForSpecialist, mergeStateKnowledge, selectToolsForTurn } from "./brain";
+import { buildSpecialistUserMessage, extractAttachedFiles, subjectsFromFiles } from "./attachments";
+import { hasProjectGithubRepo } from "./github-scope";
+import { capSpecialistResult, CONTEXT_BUDGET_RATIO, estimatedFittedTokens, factsFromTurn, filterToolsForSpecialist, fitMessagesForModel, mergeStateKnowledge, selectToolsForTurn } from "./brain";
 import { catalogForCapability, missingCapabilities } from "../plugins/catalog";
 import { claimQueuedJobs } from "./jobs";
 import { scheduleAgentJob } from "./schedule-job";
-import { estimateRunTokens } from "./context-meter";
+import { activeSubagents } from "./context-meter";
+import { buildAgentLlmUsageEvent, recordAgentChatUsage } from "./ai-usage-billing";
+import {
+  MAX_PARALLEL_SUBAGENTS,
+  chunkForParallel,
+  createMergedEventPersister,
+  fanOutDelegatesForSubjects,
+  groupParallelizable,
+} from "./parallel-work";
+import { confirmationSummary, findPendingConfirmation, isWriteToolCall, needsConfirmation } from "./write-guard";
+import { hasRequiredWebResearch, seedDocTurnLimitsFromMessages } from "./doc-turn-limits";
 
 const MAX_TOOL_ITERATIONS = 48;
 const MAX_SPECIALIST_ITERATIONS = 16;
-const MAX_PARALLEL_SUBAGENTS = 6;
-const MAX_HISTORY = 24;
 const cancelledRuns = new Set<string>();
 
 export function cancelAgentTurn(runId: string) {
@@ -96,9 +111,18 @@ export type ChatTarget = {
   headers: Record<string, string>;
   model: string;
   modelId: string;
+  displayName?: string;
   maxOutputTokens?: number;
   maxInputTokens?: number;
+  isPlatform?: boolean;
+  api?: AgentLlmApi;
 };
+
+function withParallelToolCalls(body: Record<string, unknown>): Record<string, unknown> {
+  const tools = body.tools;
+  if (!Array.isArray(tools) || tools.length === 0) return body;
+  return { ...body, parallel_tool_calls: true };
+}
 
 function joinUrl(base: string, path: string): string {
   const trimmedBase = base.replace(/\/+$/, "");
@@ -144,7 +168,7 @@ export function resolveChatTarget(stored: AgentAiConfigStored): ChatTarget {
       throw new Error(`Platform credentials are not configured for ${provider.displayName}.`);
     }
     return {
-      url: joinUrl(creds.baseUrl, `${creds.openaiPath}/chat/completions`),
+      url: joinUrl(creds.baseUrl, `${creds.openaiPath}${creds.api === "responses" ? "/responses" : "/chat/completions"}`),
       headers: {
         "Content-Type": "application/json",
         [creds.authHeader]: creds.apiKey,
@@ -153,6 +177,9 @@ export function resolveChatTarget(stored: AgentAiConfigStored): ChatTarget {
       maxOutputTokens: model.maxOutputTokens,
       maxInputTokens: model.maxInputTokens,
       modelId: model.id,
+      displayName: model.displayName,
+      isPlatform: true,
+      api: creds.api,
     };
   }
 
@@ -174,6 +201,8 @@ export function resolveChatTarget(stored: AgentAiConfigStored): ChatTarget {
     maxInputTokens: model.maxInputTokens,
     model: model.modelId,
     modelId: model.id,
+    displayName: model.displayName,
+    isPlatform: false,
   };
 }
 
@@ -194,6 +223,7 @@ type OpenAiMessage = {
   content?: string | null;
   tool_calls?: Array<{
     id: string;
+    item_id?: string;
     type: "function";
     function: { name: string; arguments: string };
   }>;
@@ -207,13 +237,12 @@ const TRAINING_OPEN_SEED =
 function toOpenAiMessages(
   system: string,
   messages: AgentChatMessage[],
-  options?: { seedTraining?: boolean },
+  options?: { seedTraining?: boolean; maxInputTokens?: number; budgetRatio?: number },
 ): OpenAiMessage[] {
-  const compressed = compressMessages(messages);
-  let recent = compressed.slice(-MAX_HISTORY);
+  let recent = fitMessagesForModel(system, messages, options?.maxInputTokens, options?.budgetRatio);
   const firstUser = messages.find((message) => message.role === "user");
   if (firstUser && !recent.some((message) => message.id === firstUser.id)) {
-    recent = [firstUser, ...recent.filter((message) => message.id !== firstUser.id)].slice(0, MAX_HISTORY + 1);
+    recent = [firstUser, ...recent.filter((message) => message.id !== firstUser.id)].slice(0, 25);
   }
   recent = recent.filter((message) => !(message.role === "user" && isTrainingKickoffContent(message.content)));
   const mapped: OpenAiMessage[] = recent.map((message) => {
@@ -225,13 +254,14 @@ function toOpenAiMessages(
           id: call.id,
           type: "function" as const,
           function: { name: call.name, arguments: call.arguments },
+          ...(call.itemId ? { item_id: call.itemId } : {}),
         })),
       };
     }
     if (message.role === "tool") {
       return {
         role: "tool",
-        content: compactJsonString(message.content ?? "", 8000),
+        content: compactJsonString(message.content ?? "", 4000),
         tool_call_id: message.toolCallId,
         name: message.toolName,
       };
@@ -246,6 +276,7 @@ function toOpenAiMessages(
 
 type OpenAiRawToolCall = {
   id?: string;
+  item_id?: string;
   name?: string;
   function?: {
     name?: string;
@@ -255,6 +286,8 @@ type OpenAiRawToolCall = {
 
 type OpenAiChoiceMessage = {
   content?: string | null | Array<{ type?: string; text?: string }>;
+  reasoning_content?: string | null;
+  reasoning?: string | null;
   tool_calls?: OpenAiRawToolCall[];
   function_call?: {
     name?: string;
@@ -289,10 +322,12 @@ async function chatCompletion(
           if (cancelledRuns.has(runId)) controller.abort();
         }, 250);
         try {
+          const prepared = withParallelToolCalls(stripUnsupportedSamplingParams(target.model, body));
+          const payload = target.api === "responses" ? toResponsesRequest(prepared) : prepared;
           const response = await fetch(target.url, {
             method: "POST",
             headers: target.headers,
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
             signal: controller.signal,
             cache: "no-store",
           });
@@ -308,7 +343,15 @@ async function chatCompletion(
               json?.error?.message || json?.message || `Chat completion failed (${response.status})`;
             throw new Error(message);
           }
-          return json ?? {};
+          const raw = json ?? {};
+          if (target.api === "responses" || isResponsesResponse(raw)) {
+            const normalized = fromResponsesResponse(raw);
+            if (normalized.error?.message && String((raw as { status?: string }).status || "") === "failed") {
+              throw new Error(normalized.error.message);
+            }
+            return normalized as OpenAiChatCompletionResponse;
+          }
+          return raw;
         } finally {
           clearTimeout(timer);
           clearInterval(poll);
@@ -338,6 +381,23 @@ function extractMessageContent(message?: OpenAiChoiceMessage): string {
   return "";
 }
 
+function extractReasoning(message?: OpenAiChoiceMessage): string {
+  for (const value of [message?.reasoning_content, message?.reasoning]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function appendEvents(target: AgentToolEvent[], extra: AgentToolEvent[]) {
+  const seen = new Set(target.map((event) => event.id));
+  for (const event of extra) {
+    if (seen.has(event.id)) continue;
+    seen.add(event.id);
+    target.push(event);
+  }
+  return target;
+}
+
 function collectToolCalls(
   choice: OpenAiChoice | undefined,
   mcpToolNames: string[],
@@ -359,6 +419,9 @@ function extractToolCalls(choice?: OpenAiChoice): AgentToolCall[] {
     return toolCalls
       .map((call: OpenAiRawToolCall) => ({
         id: String(call.id || crypto.randomUUID()),
+        ...(typeof call.item_id === "string" && call.item_id.startsWith("fc")
+          ? { itemId: call.item_id }
+          : {}),
         name: String(call.function?.name || call.name || ""),
         arguments:
           typeof call.function?.arguments === "string"
@@ -402,23 +465,45 @@ export async function runAgentTurn(params: {
 
   cancelledRuns.delete(run.id);
 
+  let snapshotMessages = [...(run.messages ?? [])];
+  let snapshotEvents = [...(run.events ?? [])];
+  const turnLimits = seedDocTurnLimitsFromMessages(run.messages);
+
   const persistUnlessStopped = async (
     patch: Parameters<typeof updateRun>[2],
   ): Promise<AgentRun> => {
-    if (cancelledRuns.has(run.id)) {
-      return (await getRun(databases, user.$id, run.id)) ?? run;
-    }
+    if (patch.messages) snapshotMessages = patch.messages;
+    if (patch.events) snapshotEvents = patch.events;
     const latest = await getRun(databases, user.$id, run.id);
-    if (latest?.status === "stopped") return latest;
+    const stopped = cancelledRuns.has(run.id) || latest?.status === "stopped";
+    if (stopped) {
+      return updateRun(databases, run.id, {
+        messages: snapshotMessages,
+        events: snapshotEvents,
+        status: "stopped",
+      });
+    }
     return updateRun(databases, run.id, patch);
   };
 
+  const persistMergedEvents = createMergedEventPersister({
+    getEvents: () => snapshotEvents,
+    setEvents: (events) => {
+      snapshotEvents = events;
+    },
+    merge: appendEvents,
+    persist: (events) => persistUnlessStopped({ events, status: "running" }),
+  });
+
   const haltIfStopped = async (): Promise<AgentRun | null> => {
-    if (cancelledRuns.has(run.id)) {
-      return (await getRun(databases, user.$id, run.id)) ?? run;
-    }
     const latest = await getRun(databases, user.$id, run.id);
-    if (latest?.status === "stopped") return latest;
+    if (cancelledRuns.has(run.id) || latest?.status === "stopped") {
+      return persistUnlessStopped({
+        messages: snapshotMessages,
+        events: snapshotEvents,
+        status: "stopped",
+      });
+    }
     return null;
   };
 
@@ -464,6 +549,30 @@ export async function runAgentTurn(params: {
   const training = isTrainingRun(run);
   const mcpToolDefs = !training && run.mode === "agent" ? mcpToolsForAuth(mcpAuth) : [];
   const mcpToolNames = mcpToolDefs.map((tool) => tool.name);
+  const billingWorkspaceId =
+    run.workspaceId || mcpAuth.workspaceId || harness.settings.defaultWorkspaceId || context.workspaces[0]?.id;
+  const captureUsage = async (
+    completion: unknown,
+    chatTarget: ChatTarget,
+    operationId: string,
+    extra?: { role?: "orchestrator" | "subagent"; specialist?: string; iteration?: number },
+  ) => {
+    const ctx = {
+      databases,
+      userId: user.$id,
+      workspaceId: billingWorkspaceId,
+      projectId: run.projectId || mcpAuth.projectId,
+      runId: run.id,
+      operationId,
+      target: chatTarget,
+      completion,
+      role: extra?.role,
+      specialist: extra?.specialist,
+      iteration: extra?.iteration,
+    };
+    void recordAgentChatUsage(ctx);
+    return buildAgentLlmUsageEvent(ctx);
+  };
 
   run = await persistUnlessStopped({
     status: "running",
@@ -485,6 +594,7 @@ export async function runAgentTurn(params: {
           mcpTools: mcpToolDefs,
         }),
         lastUserText,
+        { hasGithubRepo: hasProjectGithubRepo(context, run.projectId) },
       );
   const personalPrompt =
     personalProfile && profileIsTrained(personalProfile) ? personalProfile.compiledPrompt : undefined;
@@ -511,6 +621,7 @@ export async function runAgentTurn(params: {
     allowPersonalSave: training,
     plugins: harness.plugins,
     sourcePrompt: run.messages.find((message) => message.role === "user")?.content || run.prompt || "",
+    turnLimits,
   });
 
   const queuedJobs = await claimQueuedJobs(databases, user.$id);
@@ -539,24 +650,40 @@ export async function runAgentTurn(params: {
     call: AgentToolCall,
     nextMessages: AgentChatMessage[],
     nextEvents: AgentToolEvent[],
-    options?: { coalesced?: boolean },
+    options?: { coalesced?: boolean; skipExecute?: boolean },
   ): Promise<AgentToolCall[]> => {
-    const fingerprint = toolCallFingerprint(call.name, call.arguments);
+    const canonical = canonicalizeToolCall(call);
+    if (options?.skipExecute) {
+      const listed = unwrapListCall(canonical);
+      nextEvents.push(thoughtEvent(run.id, listed.tool === "web_fetch" ? "Skipped extra page fetch" : "Skipped extra work-item get"));
+      nextMessages.push({
+        id: crypto.randomUUID(),
+        role: "tool",
+        content: listed.tool === "web_fetch" || canonical.name === "web_fetch" ? SKIPPED_WEB_FETCH : SKIPPED_WORK_ITEM_GET,
+        toolCallId: canonical.id,
+        toolName: canonical.name,
+        createdAt: new Date().toISOString(),
+      });
+      return [];
+    }
+    const fingerprint = toolCallFingerprint(canonical.name, canonical.arguments);
     const previous = seenCalls.get(fingerprint);
     if (previous !== undefined) {
       nextEvents.push(thoughtEvent(run.id, options?.coalesced ? "Combined overlapping lists" : "Reused previous result"));
       nextMessages.push({
         id: crypto.randomUUID(),
         role: "tool",
-        content: options?.coalesced ? coalescedListMessage(previous) : repeatedToolMessage(previous, call.name),
-        toolCallId: call.id,
-        toolName: call.name,
+        content: options?.coalesced
+          ? coalescedListMessage(previous, canonical.name)
+          : repeatedToolMessage(previous, canonical.name),
+        toolCallId: canonical.id,
+        toolName: canonical.name,
         createdAt: new Date().toISOString(),
       });
       return [];
     }
 
-    const listed = unwrapListCall(call);
+    const listed = unwrapListCall(canonical);
     const slice = resolveListSliceCall(listSlices, listed.tool, listed.args);
     if (slice.action === "skip") {
       seenCalls.set(fingerprint, slice.content);
@@ -572,13 +699,13 @@ export async function runAgentTurn(params: {
       return [];
     }
 
-    const result = await executeTool(call.name, call.arguments, toolContext());
+    const result = await executeTool(canonical.name, canonical.arguments, toolContext());
     if (result.harnessPatch) {
       harness = await upsertHarness(databases, user.$id, result.harnessPatch);
     }
     if (result.missingCapability) pluginGap = result.missingCapability;
     nextEvents.push(result.event);
-    let toolContent = compactJsonString(result.content, 8000);
+    let toolContent = compactJsonString(result.content, 4000);
     let pendingWrites: AgentToolCall[] = [];
     if (result.delegate) {
       const specialist = await runSpecialistPass(
@@ -610,7 +737,7 @@ export async function runAgentTurn(params: {
       toolName: call.name,
       createdAt: new Date().toISOString(),
     });
-    const launch = extractBoardProjectFromTool(call.name, toolContent, call.arguments);
+    const launch = extractBoardProjectFromTool(canonical.name, toolContent, canonical.arguments);
     if (launch?.projectId) {
       const workspaceId = launch.workspaceId || run.workspaceId || "";
       if (run.projectId !== launch.projectId || (workspaceId && run.workspaceId !== workspaceId)) {
@@ -726,17 +853,28 @@ export async function runAgentTurn(params: {
         createdAt: new Date().toISOString(),
         runId: run.id,
       });
+      await persistMergedEvents(events);
       const completion = await chatCompletion(
         workerTarget,
         {
           model: workerTarget.model,
-          messages: toOpenAiMessages(specialistSystem, messages),
+          messages: toOpenAiMessages(specialistSystem, messages, {
+            maxInputTokens: workerTarget.maxInputTokens,
+          }),
           temperature: 0.2,
           ...(workerTarget.maxOutputTokens ? { max_tokens: workerTarget.maxOutputTokens } : {}),
           ...(isolatedTools.length ? { tools: isolatedTools, tool_choice: "auto" } : {}),
         },
         run.id,
       );
+      const usageEvent = await captureUsage(
+        completion,
+        workerTarget,
+        `${run.id}:sub:${subagentId}:${iteration}`,
+        { role: "subagent", specialist, iteration },
+      );
+      if (usageEvent) events.push(usageEvent);
+      await persistMergedEvents(events);
       const collected = collectToolCalls(completion?.choices?.[0], mcpToolNames);
       if (!collected.toolCalls.length) {
         events.push({
@@ -747,6 +885,7 @@ export async function runAgentTurn(params: {
           createdAt: new Date().toISOString(),
           runId: run.id,
         });
+        await persistMergedEvents(events);
         return {
           content: capSpecialistResult(
             sanitizeAssistantVisible(collected.content) || "Specialist finished with no additional notes.",
@@ -766,6 +905,7 @@ export async function runAgentTurn(params: {
           createdAt: new Date().toISOString(),
         },
       ];
+      const executable: AgentToolCall[] = [];
       for (const call of collected.toolCalls) {
         if (call.name === "delegate_agent") continue;
         if (needsConfirmation(call, permissionType())) {
@@ -780,7 +920,12 @@ export async function runAgentTurn(params: {
           });
           continue;
         }
-        const result = await executeTool(call.name, call.arguments, toolContext());
+        executable.push(call);
+      }
+      const applySpecialistResult = async (
+        call: AgentToolCall,
+        result: Awaited<ReturnType<typeof executeTool>>,
+      ) => {
         if (result.harnessPatch) {
           harness = await upsertHarness(databases, user.$id, result.harnessPatch);
         }
@@ -789,11 +934,72 @@ export async function runAgentTurn(params: {
         messages.push({
           id: crypto.randomUUID(),
           role: "tool",
-          content: compactJsonString(result.content, 8000),
+          content: compactJsonString(result.content, 4000),
           toolCallId: call.id,
           toolName: call.name,
           createdAt: new Date().toISOString(),
         });
+      };
+      const { calls: specialistCalls, coalescedIds: specialistCoalesced } = collapseWorkItemListFanOut(executable);
+      const { skipIds: specialistSkip } = collapseRedundantReadFanOut(specialistCalls);
+      for (const group of groupParallelizable(specialistCalls, (call) => !isWriteToolCall(call))) {
+        if (group.parallel && group.items.length > 1) {
+          const settled = await Promise.all(
+            group.items.map(async (call) => {
+              if (specialistSkip.has(call.id) || specialistCoalesced.has(call.id)) {
+                const listed = unwrapListCall(call);
+                const skippedFetch = listed.tool === "web_fetch" || call.name === "web_fetch";
+                return {
+                  call,
+                  skip: true as const,
+                  content: skippedFetch ? SKIPPED_WEB_FETCH : SKIPPED_WORK_ITEM_GET,
+                  title: skippedFetch ? "Skipped extra page fetch" : "Skipped extra work-item get",
+                };
+              }
+              return {
+                call,
+                skip: false as const,
+                result: await executeTool(call.name, call.arguments, toolContext()),
+              };
+            }),
+          );
+          for (const item of settled) {
+            if (item.skip) {
+              events.push(thoughtEvent(run.id, item.title));
+              messages.push({
+                id: crypto.randomUUID(),
+                role: "tool",
+                content: item.content,
+                toolCallId: item.call.id,
+                toolName: item.call.name,
+                createdAt: new Date().toISOString(),
+              });
+              continue;
+            }
+            await applySpecialistResult(item.call, item.result);
+          }
+          await persistMergedEvents(events);
+        } else {
+          for (const call of group.items) {
+            if (specialistSkip.has(call.id) || specialistCoalesced.has(call.id)) {
+              const listed = unwrapListCall(call);
+              const skippedFetch = listed.tool === "web_fetch" || call.name === "web_fetch";
+              events.push(thoughtEvent(run.id, skippedFetch ? "Skipped extra page fetch" : "Skipped extra work-item get"));
+              messages.push({
+                id: crypto.randomUUID(),
+                role: "tool",
+                content: skippedFetch ? SKIPPED_WEB_FETCH : SKIPPED_WORK_ITEM_GET,
+                toolCallId: call.id,
+                toolName: call.name,
+                createdAt: new Date().toISOString(),
+              });
+              continue;
+            }
+            const result = await executeTool(call.name, call.arguments, toolContext());
+            await applySpecialistResult(call, result);
+            await persistMergedEvents(events);
+          }
+        }
       }
       if (pendingWrites.length) {
         events.push({
@@ -804,6 +1010,7 @@ export async function runAgentTurn(params: {
           createdAt: new Date().toISOString(),
           runId: run.id,
         });
+        await persistMergedEvents(events);
         return {
           content: capSpecialistResult("Proposed high-risk writes are waiting for Accept."),
           events,
@@ -821,6 +1028,7 @@ export async function runAgentTurn(params: {
       createdAt: new Date().toISOString(),
       runId: run.id,
     });
+    await persistMergedEvents(events);
     return { content: capSpecialistResult(last?.content || "Specialist reached its tool limit."), events, pendingWrites, subagentId };
   };
 
@@ -846,6 +1054,8 @@ export async function runAgentTurn(params: {
           runId: run.id,
         },
       ];
+      snapshotMessages = nextMessages;
+      snapshotEvents = nextEvents;
       // Persist resolved immediately so the UI drops Accept/Deny even if the
       // following tool/model work takes a while or another poller is stale.
       run = await persistUnlessStopped({
@@ -920,19 +1130,107 @@ export async function runAgentTurn(params: {
       const stopped = await haltIfStopped();
       if (stopped) return stopped;
 
-      const completion = await chatCompletion(
-        target,
-        {
-          model: target.model,
-          messages: toOpenAiMessages(system, run.messages, { seedTraining: training }),
-          temperature: 0.2,
-          ...(target.maxOutputTokens ? { max_tokens: target.maxOutputTokens } : {}),
-          ...(tools.length && !forceAnswer ? { tools, tool_choice: "auto" } : {}),
-        },
-        run.id,
+      const fittedTokens = estimatedFittedTokens(system, run.messages, target.maxInputTokens);
+      const researched = hasRequiredWebResearch(turnLimits);
+      const tight = Boolean(
+        target.maxInputTokens &&
+          target.maxInputTokens > 0 &&
+          fittedTokens >= target.maxInputTokens * CONTEXT_BUDGET_RATIO,
       );
+      const iterationTools =
+        !training && tight && tools.length && !forceAnswer
+          ? toolsWhenContextIsTight(tools, researched)
+          : tools;
+      const writeNow = !training && tight && researched;
+
+      run = await persistUnlessStopped({
+        events: appendEvents([...snapshotEvents], [
+          thoughtEvent(
+            run.id,
+            writeNow
+              ? "Context is filling — writing from research already gathered"
+              : iteration === 0
+                ? "Thinking"
+                : "Planning next steps",
+            `Pass ${iteration + 1}`,
+          ),
+        ]),
+        status: "running",
+      });
+      if (run.status === "stopped") return run;
+
+      const completeOnce = (budgetRatio?: number) =>
+        chatCompletion(
+          target,
+          {
+            model: target.model,
+            messages: toOpenAiMessages(system, run.messages, {
+              seedTraining: training,
+              maxInputTokens: target.maxInputTokens,
+              budgetRatio,
+            }),
+            temperature: 0.2,
+            ...(target.maxOutputTokens ? { max_tokens: target.maxOutputTokens } : {}),
+            ...(iterationTools.length && !forceAnswer ? { tools: iterationTools, tool_choice: "auto" } : {}),
+          },
+          run.id,
+        );
+
+      let completion: Awaited<ReturnType<typeof chatCompletion>>;
+      try {
+        completion = await completeOnce();
+      } catch (error) {
+        if (!isContextLengthError(error) || cancelledRuns.has(run.id)) throw error;
+        run = await persistUnlessStopped({
+          events: appendEvents([...snapshotEvents], [
+            thoughtEvent(run.id, "Shrinking context and retrying", `Pass ${iteration + 1}`),
+          ]),
+          status: "running",
+        });
+        if (run.status === "stopped") return run;
+        completion = await chatCompletion(
+          target,
+          {
+            model: target.model,
+            messages: toOpenAiMessages(system, run.messages, {
+              seedTraining: training,
+              maxInputTokens: target.maxInputTokens,
+              budgetRatio: 0.5,
+            }),
+            temperature: 0.2,
+            ...(target.maxOutputTokens ? { max_tokens: target.maxOutputTokens } : {}),
+            ...(iterationTools.length && !forceAnswer
+              ? {
+                  tools: researched ? toolsWhenContextIsTight(tools, true) : iterationTools,
+                  tool_choice: "auto",
+                }
+              : {}),
+          },
+          run.id,
+        );
+      }
+      const usageEvent = await captureUsage(completion, target, `${run.id}:main:${iteration}`, {
+        role: "orchestrator",
+        iteration,
+      });
+      if (usageEvent) {
+        run = await persistUnlessStopped({
+          events: appendEvents([...snapshotEvents], [usageEvent]),
+          status: "running",
+        });
+        if (run.status === "stopped") return run;
+      }
       const stoppedAfterChat = await haltIfStopped();
       if (stoppedAfterChat) return stoppedAfterChat;
+
+      const reasoning = extractReasoning(completion?.choices?.[0]?.message);
+      if (reasoning) {
+        run = await persistUnlessStopped({
+          events: appendEvents([...snapshotEvents], [thoughtEvent(run.id, "Reasoning", reasoning.slice(0, 4000))]),
+          status: "running",
+        });
+        if (run.status === "stopped") return run;
+      }
 
       const collected = collectToolCalls(completion?.choices?.[0], mcpToolNames, {
         fromText: !training,
@@ -951,6 +1249,23 @@ export async function runAgentTurn(params: {
           createdAt: new Date().toISOString(),
         };
         const nextMessages = [...run.messages, assistantMessage];
+        const gated = toolCalls.filter((call) => needsConfirmation(call, permissionType()));
+        const autoCalls = toolCalls.filter((call) => !needsConfirmation(call, permissionType()));
+        const rest = autoCalls.filter((call) => call.name !== "delegate_agent");
+        const attached = run.messages.flatMap((message) =>
+          message.role === "user" ? extractAttachedFiles(message.content) : [],
+        );
+        const fanned = fanOutDelegatesForSubjects(
+          autoCalls.filter((call) => call.name === "delegate_agent"),
+          subjectsFromFiles(attached),
+        );
+        const delegates = fanned.calls;
+        if (fanned.expanded) {
+          assistantMessage.toolCalls = [
+            ...toolCalls.filter((call) => call.name !== "delegate_agent"),
+            ...delegates,
+          ];
+        }
         const nextEvents = [
           ...run.events,
           {
@@ -958,42 +1273,79 @@ export async function runAgentTurn(params: {
             type: "context_meter" as const,
             title: "Context",
             payload: {
-              tokens: estimateRunTokens(run.messages, system.length),
+              tokens: estimatedFittedTokens(system, run.messages, target.maxInputTokens),
               maxInputTokens: target.maxInputTokens ?? 0,
-              subagents: 0,
+              subagents: activeSubagents(run.events).length + delegates.length,
             },
             createdAt: new Date().toISOString(),
             runId: run.id,
           },
         ];
-        const gated = toolCalls.filter((call) => needsConfirmation(call, permissionType()));
-        const autoCalls = toolCalls.filter((call) => !needsConfirmation(call, permissionType()));
-        const delegates = autoCalls.filter((call) => call.name === "delegate_agent");
-        const rest = autoCalls.filter((call) => call.name !== "delegate_agent");
-        const { calls: reads, coalescedIds } = collapseWorkItemListFanOut(rest);
+        snapshotMessages = nextMessages;
+        snapshotEvents = nextEvents;
+        const { calls: restCalls, coalescedIds } = collapseWorkItemListFanOut(rest);
+        const { skipIds } = collapseRedundantReadFanOut(restCalls);
         const specialistWrites: AgentToolCall[] = [];
 
-        for (const call of reads) {
+        for (const group of groupParallelizable(restCalls, (call) => !isWriteToolCall(call))) {
           const stoppedBeforeTool = await haltIfStopped();
           if (stoppedBeforeTool) return stoppedBeforeTool;
-          const extra = await applyToolCall(call, nextMessages, nextEvents, { coalesced: coalescedIds.has(call.id) });
-          specialistWrites.push(...extra);
+          if (group.parallel && group.items.length > 1) {
+            const settled = await Promise.all(
+              group.items.map(async (call) => {
+                const localMessages: AgentChatMessage[] = [];
+                const localEvents: AgentToolEvent[] = [];
+                const extra = await applyToolCall(call, localMessages, localEvents, {
+                  coalesced: coalescedIds.has(call.id),
+                  skipExecute: skipIds.has(call.id),
+                });
+                return { localMessages, localEvents, extra };
+              }),
+            );
+            for (const item of settled) {
+              nextMessages.push(...item.localMessages);
+              nextEvents.push(...item.localEvents);
+              specialistWrites.push(...item.extra);
+            }
+          } else {
+            for (const call of group.items) {
+              const extra = await applyToolCall(call, nextMessages, nextEvents, {
+                coalesced: coalescedIds.has(call.id),
+                skipExecute: skipIds.has(call.id),
+              });
+              specialistWrites.push(...extra);
+            }
+          }
+          run = await persistUnlessStopped({
+            messages: nextMessages,
+            events: nextEvents,
+            status: "running",
+          });
+          if (run.status === "stopped") return run;
         }
 
         if (delegates.length) {
           nextEvents.push(
             thoughtEvent(
               run.id,
-              `Running ${delegates.length} subagent${delegates.length === 1 ? "" : "s"} in parallel`,
+              delegates.length === 1
+                ? "Running 1 subagent"
+                : `Running ${delegates.length} subagents in parallel`,
+              fanned.expanded ? `Split into ${delegates.length} subject specialists.` : undefined,
             ),
           );
-          for (let i = 0; i < delegates.length; i += MAX_PARALLEL_SUBAGENTS) {
-            const batch = delegates.slice(i, i + MAX_PARALLEL_SUBAGENTS);
+          await persistUnlessStopped({
+            messages: nextMessages,
+            events: nextEvents,
+            status: "running",
+          });
+          for (const batch of chunkForParallel(delegates, MAX_PARALLEL_SUBAGENTS)) {
             const stoppedBeforeBatch = await haltIfStopped();
             if (stoppedBeforeBatch) return stoppedBeforeBatch;
             const settled = await Promise.all(
               batch.map(async (call) => {
                 const result = await executeTool(call.name, call.arguments, toolContext());
+                if (result.event) await persistMergedEvents([result.event]);
                 if (!result.delegate) {
                   return { call, result, specialist: undefined as Awaited<ReturnType<typeof runSpecialistPass>> | undefined };
                 }
@@ -1006,11 +1358,12 @@ export async function runAgentTurn(params: {
                 return { call, result, specialist };
               }),
             );
+            appendEvents(nextEvents, snapshotEvents);
             for (const item of settled) {
-              nextEvents.push(item.result.event);
+              appendEvents(nextEvents, [item.result.event]);
               const pendingWrites = item.specialist?.pendingWrites ?? [];
               specialistWrites.push(...pendingWrites);
-              if (item.specialist) nextEvents.push(...item.specialist.events);
+              if (item.specialist) appendEvents(nextEvents, item.specialist.events);
               if (item.result.missingCapability) pluginGap = item.result.missingCapability;
               nextMessages.push({
                 id: crypto.randomUUID(),
@@ -1031,6 +1384,13 @@ export async function runAgentTurn(params: {
                 createdAt: new Date().toISOString(),
               });
             }
+            snapshotEvents = nextEvents;
+            run = await persistUnlessStopped({
+              messages: nextMessages,
+              events: nextEvents,
+              status: "running",
+            });
+            if (run.status === "stopped") return run;
           }
         }
 
@@ -1044,6 +1404,12 @@ export async function runAgentTurn(params: {
           const stoppedBeforeTool = await haltIfStopped();
           if (stoppedBeforeTool) return stoppedBeforeTool;
           await applyToolCall(call, nextMessages, nextEvents);
+          run = await persistUnlessStopped({
+            messages: nextMessages,
+            events: nextEvents,
+            status: "running",
+          });
+          if (run.status === "stopped") return run;
         }
 
         if (writesToConfirm.length) {
@@ -1092,6 +1458,7 @@ export async function runAgentTurn(params: {
       }
       return persistUnlessStopped({
         messages: completedMessages,
+        events: snapshotEvents,
         status: "completed",
         error: "",
       });
@@ -1105,15 +1472,28 @@ export async function runAgentTurn(params: {
     };
     return persistUnlessStopped({
       messages: [...run.messages, limitMessage],
+      events: snapshotEvents,
       status: "completed",
       error: "",
     });
   } catch (error) {
     const stopped = await haltIfStopped();
     if (stopped) return stopped;
+    const errorText = formatAgentTurnError(error, AGENT_CHAT_TIMEOUT_MS);
     return persistUnlessStopped({
+      messages: snapshotMessages,
+      events: appendEvents([...snapshotEvents], [
+        {
+          id: crypto.randomUUID(),
+          type: "error",
+          title: "Turn failed",
+          detail: errorText,
+          createdAt: new Date().toISOString(),
+          runId: run.id,
+        },
+      ]),
       status: "failed",
-      error: formatAgentTurnError(error, AGENT_CHAT_TIMEOUT_MS),
+      error: errorText,
     });
   }
 }

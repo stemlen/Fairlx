@@ -462,15 +462,7 @@ const app = new Hono()
             const { createAdminClient } = await import("@/lib/appwrite");
             const { databases: adminDb } = await createAdminClient();
 
-            // Use the Gemini API key from env
             const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "";
-            if (!apiKey) {
-                return c.json({
-                    success: false,
-                    error: "No Gemini API key configured (NEXT_PUBLIC_GEMINI_API_KEY or GEMINI_API_KEY)",
-                }, 500);
-            }
-
             const results = await syncAIModelPricing(adminDb, apiKey);
             const duration = Date.now() - startTime;
 

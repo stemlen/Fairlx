@@ -8,6 +8,7 @@ import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { AccountLifecycleProvider } from "@/components/account-lifecycle-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { DraftCleanup } from "@/components/draft-cleanup";
+import { ChunkLoadRecovery } from "@/components/chunk-load-recovery";
 
 import "./globals.css";
 
@@ -48,6 +49,7 @@ export default function RootLayout({
           <NuqsAdapter>
             <QueryProvider>
               <Toaster />
+              <ChunkLoadRecovery />
               <DraftCleanup />
               <AccountLifecycleProvider>
                 {children}

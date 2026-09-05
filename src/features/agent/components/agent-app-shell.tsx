@@ -48,6 +48,7 @@ import { useGetAgentHarness, useUpdateAgentHarness } from "../api/use-agent-harn
 import { useGetAgentRuns, useDeleteAgentRun } from "../api/use-agent-runs";
 import { relativeTime } from "../lib/agent-ui";
 import { useAgentUi } from "./agent-ui-context";
+import { WalletBalanceChip, WalletBillingBanner } from "@/features/billing/components/wallet-billing-alerts";
 
 export function AgentPageFrame({ children }: { children: ReactNode }) {
   return <div className="h-full overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar">{children}</div>;
@@ -579,6 +580,7 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
 
           {/* Right Action Bar */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            <WalletBalanceChip />
             {/* Switch back to Fairlx Main App */}
             <Link href="/">
               <Button
@@ -603,6 +605,7 @@ export function AgentAppShell({ children }: { children: ReactNode }) {
             <UserButton />
           </div>
         </header>
+        <WalletBillingBanner />
 
         {/* Content Outlet */}
         <main className="relative flex-1 min-h-0 overflow-hidden bg-background">

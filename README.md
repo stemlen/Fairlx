@@ -18,16 +18,42 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-05T10:47:21.423Z
+**Last updated:** 2026-09-05T18:48:43.679Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
+**This commit**
+
+- `.env.example`
+- `next.config.mjs`
+- `packages/fairlx-mcp/package.json`
+- `packages/fairlx-mcp/src/auth/scopes.ts`
+- `packages/fairlx-mcp/src/catalog.test.ts`
+- `packages/fairlx-mcp/src/lib/project-doc-markdown.test.ts`
+- `packages/fairlx-mcp/src/lib/project-doc-markdown.ts`
+- `packages/fairlx-mcp/src/lib/project-doc-pack.test.ts`
+- `packages/fairlx-mcp/src/lib/project-doc-pack.ts`
+- `packages/fairlx-mcp/src/lib/project-doc-quality.test.ts`
+- `packages/fairlx-mcp/src/lib/project-doc-quality.ts`
+- `packages/fairlx-mcp/src/runtime/types.ts`
+- `packages/fairlx-mcp/src/skills/generate-prd/SKILL.md`
+- `packages/fairlx-mcp/src/skills/registry.ts`
+- `packages/fairlx-mcp/src/tools/billing.test.ts`
+- `packages/fairlx-mcp/src/tools/billing.ts`
+- `packages/fairlx-mcp/src/tools/catalog.ts`
+- `packages/fairlx-mcp/src/tools/index.ts`
+- `packages/fairlx-mcp/src/tools/organization.test.ts`
+- `packages/fairlx-mcp/src/tools/organization.ts`
+- …and 115 more files
+
 **Latest commits**
 
+- `2108acc` chore: bump version to 0.2.100 [skip ci] (2026-09-05)
+- `6259f4f` Merge pull request #303 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync (2026-09-05)
 - `76b6b22` checkpoint before checking out main (2026-09-05)
+- `6f733c8` chore: bump version to 0.2.99 [skip ci] (2026-09-05)
+- `77834c5` Merge pull request #302 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync (2026-09-05)
 - `4d69739` Merge stemlen/main into contrib branch for cross-repo contribution (2026-09-05)
-- `e0a995a` Ship leftover org invite, agent board, and docs-hook work. (2026-09-05)
-- `7a39a96` Raise agent model timeouts and pass attached specs to subject sub-agents. (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

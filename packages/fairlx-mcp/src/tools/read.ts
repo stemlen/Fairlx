@@ -29,9 +29,11 @@ import {
   organizationWorkspacesList,
   resolveOrganizationId,
   actorCanReadOrganization,
+  departmentList,
 } from "./organization";
 import { handlePersonalTool } from "../personal/load";
 import { generateDailyBriefing, type PersonaRole } from "@fairlx/multi-agent";
+import { usageSummary } from "./billing";
 
 export async function handleReadTool(
   name: string,
@@ -91,6 +93,8 @@ export async function handleReadTool(
       return organizationList(args, runtime, auth);
     case "fairlx_organization_workspaces_list":
       return organizationWorkspacesList(args, runtime, auth);
+    case "fairlx_department_list":
+      return departmentList(args, runtime, auth);
     case "fairlx_subtask_list":
       return subtaskList(args, runtime, auth);
     case "fairlx_notification_list":
@@ -125,6 +129,8 @@ export async function handleReadTool(
       return webhookList(args, runtime, auth);
     case "fairlx_github_repo_list":
       return githubRepoList(args, runtime, auth);
+    case "fairlx_usage_summary":
+      return usageSummary(args, runtime, auth);
     case "fairlx_personal_harness_get":
     case "fairlx_personal_search":
     case "fairlx_personal_skill_list":
@@ -396,7 +402,9 @@ async function sprintList(
   await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.VIEW_SPRINTS, ["sprints:read"]);
   const extra: McpQuery[] = [{ type: "equal", field: "projectId", value: projectId }];
   const status = optionalString(args, "status");
-  if (status) extra.push({ type: "equal", field: "status", value: status });
+  if (status && /^(ACTIVE|PLANNED|COMPLETED)$/i.test(status)) {
+    extra.push({ type: "equal", field: "status", value: status.toUpperCase() });
+  }
   const result = await runtime.store.list<Record<string, unknown>>(
     runtime.collections.sprints,
     listQuery(args, extra)
@@ -547,7 +555,8 @@ async function docGet(
   await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.VIEW_DOCS, ["docs:read"]);
   return toolResult({
     doc: withId(doc),
-    untrusted: wrapUntrusted("document", doc.description ?? doc.title ?? doc.name),
+    content: String(doc.aiSummary || doc.description || ""),
+    untrusted: wrapUntrusted("document", doc.aiSummary ?? doc.description ?? doc.title ?? doc.name),
   });
 }
 
