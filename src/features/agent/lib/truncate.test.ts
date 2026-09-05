@@ -162,6 +162,71 @@ describe("stringifyBounded", () => {
     expect(confirm?.payload?.calls).toHaveLength(7);
   });
 
+  it("keeps the thinking trail instead of dropping thought events first", () => {
+    const events = Array.from({ length: 80 }, (_, index) => ({
+      id: `th_${index}`,
+      type: "thought",
+      title: `Thinking step ${index}`,
+      detail: "x".repeat(240),
+      payload: { bulky: "y".repeat(500) },
+      createdAt: new Date().toISOString(),
+      runId: "run1",
+    }));
+    const json = stringifyBounded(events, 16384);
+    expect(json.length).toBeLessThanOrEqual(16384);
+    const parsed = parseJson<Array<{ type?: string; title?: string }>>(json, []);
+    const thoughts = parsed.filter((event) => event.type === "thought");
+    expect(thoughts.length).toBeGreaterThan(10);
+    expect(thoughts.some((event) => event.title?.includes("Thinking step"))).toBe(true);
+  });
+
+  it("keeps llm usage payloads when slimming a long event trail", () => {
+    const events = [
+      ...Array.from({ length: 40 }, (_, index) => ({
+        id: `th_${index}`,
+        type: "thought",
+        title: `Thinking step ${index}`,
+        detail: "x".repeat(200),
+        payload: { bulky: "y".repeat(400) },
+        createdAt: new Date().toISOString(),
+        runId: "run1",
+      })),
+      {
+        id: "usage1",
+        type: "llm_usage",
+        title: "Model call",
+        detail: "8388 tokens",
+        payload: {
+          role: "orchestrator",
+          displayName: "Grok 4.6",
+          model: "grok-4.6",
+          modelId: "grok-4.6",
+          promptTokens: 8000,
+          completionTokens: 388,
+          cachedTokens: 0,
+          totalTokens: 8388,
+          billed: true,
+          costUSD: 0.0187,
+          providerCostUSD: 0.016,
+          inputPricePerMillionTokens: 2,
+          outputPricePerMillionTokens: 6,
+          cachedInputPricePerMillionTokens: 0.2,
+          markup: 1.15,
+          cacheHitPercent: 0,
+          operationId: "op1",
+          estimated: false,
+        },
+        createdAt: new Date().toISOString(),
+        runId: "run1",
+      },
+    ];
+    const json = stringifyBounded(events, 16384);
+    const parsed = parseJson<Array<{ type?: string; payload?: { displayName?: string; totalTokens?: number } }>>(json, []);
+    const usage = parsed.find((event) => event.type === "llm_usage");
+    expect(usage?.payload?.displayName).toBe("Grok 4.6");
+    expect(usage?.payload?.totalTokens).toBe(8388);
+  });
+
   it("keeps the context_meter payload when events exceed the cap", () => {
     const events = [
       ...Array.from({ length: 30 }, (_, index) => ({

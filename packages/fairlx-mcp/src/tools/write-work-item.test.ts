@@ -6,9 +6,11 @@ import { callTool } from "./index";
 function workItemRuntime(options?: {
   workItems?: Record<string, unknown>[];
   members?: Record<string, unknown>[];
+  sprints?: Record<string, unknown>[];
 }) {
   const workItems = (options?.workItems ?? []).map((doc) => ({ ...doc }));
   const members = (options?.members ?? []).map((doc) => ({ ...doc }));
+  const sprints = (options?.sprints ?? []).map((doc) => ({ ...doc }));
   const profiles = new Map(
     members.map((doc) => [
       String(doc.userId),
@@ -20,15 +22,22 @@ function workItemRuntime(options?: {
     ]),
   );
 
+  const table = (collection: string) => {
+    if (collection === "members") return members;
+    if (collection === "sprints") return sprints;
+    return workItems;
+  };
+
   const runtime = {
     collections: {
       workItems: "work_items",
       projects: "projects",
       members: "members",
+      sprints: "sprints",
     },
     store: {
       list: async (collection: string, queries: Array<{ type: string; field?: string; value?: unknown }>) => {
-        let filtered = collection === "members" ? members : workItems;
+        let filtered = table(collection);
         for (const query of queries) {
           if (query.type === "equal" && query.field) {
             const wanted = Array.isArray(query.value)
@@ -43,8 +52,7 @@ function workItemRuntime(options?: {
         if (collection === "projects" && id === "proj_1") {
           return { $id: "proj_1", workspaceId: "ws_1", name: "School Stacker" };
         }
-        const table = collection === "members" ? members : workItems;
-        const doc = table.find((item) => item.$id === id);
+        const doc = table(collection).find((item) => item.$id === id);
         if (!doc) throw new Error("missing");
         return doc;
       },
@@ -54,8 +62,7 @@ function workItemRuntime(options?: {
         return doc;
       },
       update: async (collection: string, id: string, data: Record<string, unknown>) => {
-        const table = collection === "members" ? members : workItems;
-        const doc = table.find((item) => item.$id === id);
+        const doc = table(collection).find((item) => item.$id === id);
         if (!doc) throw new Error("missing");
         Object.assign(doc, data);
         return doc;
@@ -398,5 +405,177 @@ describe("fairlx_work_item_update", () => {
     expect(workItems.find((item) => item.key === "SCHO-3")?.epicId).toBe("epic_chat");
     expect(workItems.find((item) => item.key === "SCHO-4")?.epicId).toBe("epic_grade");
     expect(payload.mapping.map((row) => row.epicKey).sort()).toEqual(["SCHO-1", "SCHO-2"]);
+  });
+
+  const fogefMember = {
+    $id: "mem_fogef",
+    workspaceId: "ws_1",
+    userId: "user_fogef",
+    role: "MEMBER",
+    displayName: "fogef",
+    displayEmail: "fogefe9321@94an.com",
+  };
+
+  it("clearAssignees unassigns every sprint item and leaves the backlog", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-1",
+          title: "Sprint 1 item",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: "sp_1",
+          assigneeIds: ["mem_fogef"],
+        },
+        {
+          $id: "wi_2",
+          key: "SCHO-2",
+          title: "Sprint 2 item",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: "sp_2",
+          assigneeIds: ["mem_fogef"],
+        },
+        {
+          $id: "wi_3",
+          key: "SCHO-3",
+          title: "Backlog item",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: null,
+          assigneeIds: ["mem_fogef"],
+        },
+      ],
+      members: [fogefMember],
+      sprints: [
+        { $id: "sp_1", projectId: "proj_1", name: "Sprint 1 — Foundation" },
+        { $id: "sp_2", projectId: "proj_1", name: "Sprint 2 — Adaptive Core" },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_bulk_update",
+      { clearAssignees: true, projectId: "proj_1" },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { count: number; cleared: boolean };
+    expect(payload.cleared).toBe(true);
+    expect(payload.count).toBe(2);
+    expect(workItems.find((item) => item.key === "SCHO-1")?.assigneeIds).toEqual([]);
+    expect(workItems.find((item) => item.key === "SCHO-2")?.assigneeIds).toEqual([]);
+    expect(workItems.find((item) => item.key === "SCHO-3")?.assigneeIds).toEqual(["mem_fogef"]);
+  });
+
+  it("treats assignPercent 0 as clearAssignees instead of rejecting it", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-1",
+          title: "Sprint 1 item",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: "sp_1",
+          assigneeIds: ["mem_other"],
+        },
+      ],
+      members: [fogefMember],
+      sprints: [{ $id: "sp_1", projectId: "proj_1", name: "Sprint 1 — Foundation" }],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_bulk_update",
+      { assignPercent: 0, assigneeIds: ["fogef"], projectId: "proj_1" },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(workItems[0]?.assigneeIds).toEqual([]);
+  });
+
+  it("assigns every work item in Sprint 1 by name and replaces existing assignees", async () => {
+    const { runtime, workItems } = workItemRuntime({
+      workItems: [
+        {
+          $id: "wi_1",
+          key: "SCHO-1",
+          title: "Already assigned",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: "sp_1",
+          assigneeIds: ["mem_other"],
+        },
+        {
+          $id: "wi_2",
+          key: "SCHO-2",
+          title: "Unassigned in sprint 1",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: "sp_1",
+          assigneeIds: [],
+        },
+        {
+          $id: "wi_3",
+          key: "SCHO-3",
+          title: "Sprint 2 stays",
+          projectId: "proj_1",
+          workspaceId: "ws_1",
+          sprintId: "sp_2",
+          assigneeIds: ["mem_other"],
+        },
+      ],
+      members: [fogefMember],
+      sprints: [
+        { $id: "sp_1", projectId: "proj_1", name: "Sprint 1 — Foundation" },
+        { $id: "sp_2", projectId: "proj_1", name: "Sprint 2 — Adaptive Core" },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_work_item_bulk_update",
+      { sprintId: "Sprint 1", assigneeIds: ["Fogef"], projectId: "proj_1" },
+      runtime,
+      auth,
+    );
+
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { assignedKeys: string[] };
+    expect(payload.assignedKeys.sort()).toEqual(["SCHO-1", "SCHO-2"]);
+    expect(workItems.find((item) => item.key === "SCHO-1")?.assigneeIds).toEqual(["mem_fogef"]);
+    expect(workItems.find((item) => item.key === "SCHO-2")?.assigneeIds).toEqual(["mem_fogef"]);
+    expect(workItems.find((item) => item.key === "SCHO-3")?.assigneeIds).toEqual(["mem_other"]);
+  });
+
+  it("ignores status ALL when listing sprints", async () => {
+    const { runtime } = workItemRuntime({
+      sprints: [
+        { $id: "sp_1", projectId: "proj_1", name: "Sprint 1 — Foundation", status: "ACTIVE" },
+        { $id: "sp_2", projectId: "proj_1", name: "Sprint 2 — Adaptive Core", status: "PLANNED" },
+      ],
+    });
+
+    const result = await callTool(
+      "fairlx_sprint_list",
+      { projectId: "proj_1", status: "ALL" },
+      runtime,
+      jwtToAuthContext("admin_1", {
+        workspaceId: "ws_1",
+        projectId: "proj_1",
+        scopes: ["sprints:read"],
+      }),
+    );
+
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { sprints: { name: string }[]; total: number };
+    expect(payload.total).toBe(2);
+    expect(payload.sprints.map((sprint) => sprint.name)).toEqual([
+      "Sprint 1 — Foundation",
+      "Sprint 2 — Adaptive Core",
+    ]);
   });
 });

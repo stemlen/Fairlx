@@ -120,6 +120,8 @@ export type AgentChatRole = "user" | "assistant" | "tool";
 
 export type AgentToolCall = {
   id: string;
+  /** Azure/OpenAI Responses function_call item id (`fc_...`). */
+  itemId?: string;
   name: string;
   arguments: string;
 };
@@ -279,6 +281,7 @@ export type AgentToolEventType =
   | "terminal"
   | "file_search"
   | "web_search"
+  | "web_fetch"
   | "database_query"
   | "use_skill"
   | "list_workspaces"
@@ -316,6 +319,7 @@ export type AgentToolEventType =
   | "context_meter"
   | "confirmation"
   | "confirmation_resolved"
+  | "llm_usage"
   | "error";
 
 export type AgentToolEvent = {
@@ -326,6 +330,30 @@ export type AgentToolEvent = {
   payload?: unknown;
   createdAt: string;
   runId: string;
+};
+
+export type AgentLlmUsagePayload = {
+  role: "orchestrator" | "subagent";
+  specialist?: string;
+  iteration?: number;
+  operationId: string;
+  model: string;
+  modelId: string;
+  displayName: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  estimated: boolean;
+  billed: boolean;
+  inputPricePerMillionTokens: number;
+  outputPricePerMillionTokens: number;
+  cachedInputPricePerMillionTokens: number;
+  providerCostUSD: number;
+  costUSD: number;
+  markup: number;
+  cacheHitPercent: number;
+  pricingSource?: string;
 };
 
 export type AgentRun = {

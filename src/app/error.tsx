@@ -14,7 +14,19 @@ const ErrorPage = ({
   reset: () => void;
 }) => {
   useEffect(() => {
-    // Error handled by error boundary
+    const chunkFailure = /ChunkLoadError|Loading chunk .+ failed/i.test(
+      `${error.name} ${error.message}`,
+    );
+    if (!chunkFailure) return;
+    try {
+      const key = "fairlx-chunk-reload-at";
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (Date.now() - last < 15_000) return;
+      sessionStorage.setItem(key, String(Date.now()));
+      window.location.reload();
+    } catch {
+      window.location.reload();
+    }
   }, [error]);
 
   return (

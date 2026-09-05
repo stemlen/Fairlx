@@ -1,12 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, ChevronUp, Files, Loader2, Sparkles, X } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronRight, ChevronUp, Files, Loader2, Sparkles, X } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { AgentRun } from "../types";
-import { activeSubagents, editedFilePaths } from "../lib/context-meter";
+import { activeSubagents, editedFilePaths, latestContextMeter } from "../lib/context-meter";
+import {
+  aggregateLlmUsage,
+  contextUtilizationPercent,
+  formatCompactUsageLine,
+  formatPricePerMillion,
+  formatTokenCount,
+  formatUsd,
+} from "../lib/run-usage";
 
 export function AgentWorkingDropUp({ run }: { run?: AgentRun }) {
   const [open, setOpen] = useState(false);
@@ -127,3 +135,95 @@ export function AgentWorkingDropUp({ run }: { run?: AgentRun }) {
 
 // Backwards-compatible export
 export const AgentRunHud = AgentWorkingDropUp;
+
+export function AgentTurnUsageCard({
+  events,
+  modelFallback,
+  live,
+}: {
+  events: AgentRun["events"];
+  modelFallback?: string;
+  live?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const usage = aggregateLlmUsage(events);
+  const meter = latestContextMeter(events);
+  if (!usage) return null;
+  const contextPct = contextUtilizationPercent(meter?.tokens ?? 0, meter?.maxInputTokens ?? 0);
+  const line = formatCompactUsageLine({
+    ...usage,
+    models: usage.models.length ? usage.models : modelFallback ? [modelFallback] : usage.models,
+  });
+
+  return (
+    <div className="min-w-0 max-w-[46rem]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex max-w-full items-center gap-1.5 text-[12.5px] text-muted-foreground hover:text-foreground transition-colors"
+        title="Token and cost breakdown"
+      >
+        {live ? (
+          <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
+        ) : (
+          <Check className="size-3.5 text-muted-foreground shrink-0" />
+        )}
+        <span className="truncate">{live ? `Usage so far · ${line}` : line}</span>
+        {open ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
+      </button>
+      {open ? (
+        <div
+          className={cn(
+            "mt-1.5 ml-1 border-l border-border/80 pl-3 py-1.5 text-[12px]",
+            live && "border-primary/30",
+          )}
+        >
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 text-muted-foreground">
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide">Input</dt>
+              <dd className="text-foreground tabular-nums">{formatTokenCount(usage.promptTokens)}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide">Output</dt>
+              <dd className="text-foreground tabular-nums">{formatTokenCount(usage.completionTokens)}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide">Cached</dt>
+              <dd className="text-foreground tabular-nums">
+                {formatTokenCount(usage.cachedTokens)}
+                {usage.promptTokens > 0 ? ` · ${Math.round(usage.cacheHitPercent)}%` : ""}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide">Cache rate</dt>
+              <dd className="text-foreground tabular-nums">
+                {formatPricePerMillion(usage.cachedInputPricePerMillionTokens)} / 1M
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide">Input / output</dt>
+              <dd className="text-foreground tabular-nums">
+                {formatPricePerMillion(usage.inputPricePerMillionTokens)} / {formatPricePerMillion(usage.outputPricePerMillionTokens)} per 1M
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide">{usage.billed ? "Billed" : "Provider (BYOK)"}</dt>
+              <dd className="text-foreground tabular-nums">
+                {usage.billed ? formatUsd(usage.costUSD) : `${formatUsd(usage.providerCostUSD)} not billed`}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {`${usage.calls} model call${usage.calls === 1 ? "" : "s"}`}
+            {usage.subagentCalls ? ` · ${usage.subagentCalls} subagent` : ""}
+            {usage.estimated ? " · estimated tokens" : ""}
+            {meter?.maxInputTokens
+              ? ` · context ${formatTokenCount(meter.tokens)} / ${formatTokenCount(meter.maxInputTokens)}${contextPct ? ` (${Math.round(contextPct)}%)` : ""}`
+              : ""}
+            {usage.billed ? " · includes 15% Fairlx markup" : ""}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -44,7 +44,7 @@ export function shouldPollAgentRun(status?: string): boolean {
 }
 
 export function agentRunPollMs(status?: string): number | false {
-  if (status === "running") return 2000;
+  if (status === "running") return 800;
   if (status === "awaiting_confirmation" || status === "awaiting_plugin") return 2500;
   return false;
 }

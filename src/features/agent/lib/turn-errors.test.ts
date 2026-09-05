@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAgentTurnError } from "./turn-errors";
+import { formatAgentTurnError, isContextLengthError, isTransientModelFetchError } from "./turn-errors";
 
 describe("formatAgentTurnError", () => {
   it("maps AbortError to a timeout message", () => {
@@ -34,5 +34,13 @@ describe("formatAgentTurnError", () => {
     expect(formatAgentTurnError(new Error("fetch failed"))).toBe(
       "The model provider connection dropped. Retry the same message.",
     );
+  });
+});
+
+describe("isContextLengthError", () => {
+  it("detects provider context-window failures and does not treat them as transient", () => {
+    const error = new Error("This model's maximum context length is 72000 tokens");
+    expect(isContextLengthError(error)).toBe(true);
+    expect(isTransientModelFetchError(error)).toBe(false);
   });
 });

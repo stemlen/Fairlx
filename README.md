@@ -18,16 +18,20 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-05T10:47:21.423Z
+**Last updated:** 2026-09-05T18:55:34.441Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
 **Latest commits**
 
-- `76b6b22` checkpoint before checking out main (2026-09-05)
-- `4d69739` Merge stemlen/main into contrib branch for cross-repo contribution (2026-09-05)
-- `e0a995a` Ship leftover org invite, agent board, and docs-hook work. (2026-09-05)
-- `7a39a96` Raise agent model timeouts and pass attached specs to subject sub-agents. (2026-09-05)
+- `8c49ee0` Merge stemlen/main into fork main to sync upstream before contribution. (2026-09-06)
+- `c719487` feat: researched project docs, agent context fitting, and usage billing (2026-09-06)
+- `8b787ea` chore: bump version to 0.2.102 [skip ci] (2026-09-05)
+- `66e7390` Merge pull request #305 from Happyesss/main (2026-09-05)
+- `f06ca01` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
+- `c81e03c` Merge pull request #304 from Happyesss/contrib/context-meter (2026-09-05)
+- `3de0bd4` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
+- `7bc902a` Merge stemlen/main into fork and resolve prompt rule conflict. (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

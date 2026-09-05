@@ -21,6 +21,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@fairlx/mcp-server": ["./packages/fairlx-mcp/src/index.ts"],
+      "@fairlx/mcp-server/markdown": ["./packages/fairlx-mcp/src/lib/project-doc-markdown.ts"],
       "@fairlx/multi-agent": ["./packages/fairlx-multi-agent/src/index.ts"]
     }
   },

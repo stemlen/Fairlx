@@ -2,7 +2,15 @@ import { agentChatTimeoutMs } from "./limits";
 
 export const AGENT_CHAT_TIMEOUT_MS = agentChatTimeoutMs();
 
+export function isContextLengthError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /context.?length|maximum context|prompt is too long|too many tokens|max(?:imum)? input|input.*(too large|exceed)|exceeds? (the )?model/i.test(
+    message,
+  );
+}
+
 export function isTransientModelFetchError(error: unknown): boolean {
+  if (isContextLengthError(error)) return false;
   if (!(error instanceof Error)) {
     return /fetch failed|failed to fetch/i.test(String(error));
   }

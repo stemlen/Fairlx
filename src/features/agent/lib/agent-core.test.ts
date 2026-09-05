@@ -6,7 +6,7 @@ import { commitStaged, emptyChatMeta, emptyGitStaging, stageItem, unstageItem } 
 import { resolveSpecialist, buildContextGraph } from "./graph";
 import { readPersonalContent } from "./personal";
 import { defaultHarnessData } from "./harness";
-import { groupTranscript, summarizeToolResult } from "./transcript";
+import { groupConversationTurns, groupTranscript, summarizeToolResult, visibleThoughtLines } from "./transcript";
 import { composeUserPrompt, displayUserContent, AGENT_SESSION_MODES, trainingSaveReady } from "./session-context";
 import { trainingKickoffPrompt } from "./personal-training";
 import { compileFairlxListIntent } from "./intent-compiler";
@@ -136,6 +136,7 @@ describe("graph and prompt", () => {
     expect(prompt).toContain("workspaceId: w1");
     expect(prompt).toContain("Organization: Stemlen");
     expect(prompt).toMatch(/organization name is already in context/i);
+    expect(prompt).toMatch(/fairlx_usage_summary/);
     expect(prompt).not.toMatch(/Use mcp_list/);
     expect(prompt).toMatch(/change a member's role/i);
     expect(prompt).toMatch(/adds them to the organization and this workspace/i);
@@ -143,6 +144,8 @@ describe("graph and prompt", () => {
     expect(prompt).toMatch(/workItemId set to the item key/i);
     expect(prompt).toMatch(/fairlx_work_item_bulk_update/);
     expect(prompt).toMatch(/assignPercent/);
+    expect(prompt).toMatch(/clearAssignees/);
+    expect(prompt).toMatch(/Omit status/);
     expect(prompt).toMatch(/do not say they are assigned/i);
     expect(prompt).toContain("Task: New high-priority bug on login");
     expect(prompt).toMatch(/One fairlx_work_item_list per project/);
@@ -159,9 +162,45 @@ describe("graph and prompt", () => {
     });
     expect(prompt).toMatch(/propose one concrete feature/i);
     expect(prompt).toMatch(/delegate_agent/);
+    expect(prompt).toMatch(/same assistant step/i);
+    expect(prompt).toMatch(/in parallel/i);
     expect(prompt).toMatch(/one subject/i);
     expect(prompt).not.toMatch(/Stay in the Planner role/);
     expect(prompt).not.toMatch(/return findings only/);
+  });
+
+  it("requires researched project documentation instead of stub files", () => {
+    const prompt = buildSystemPrompt({
+      harness: harness(),
+      context: context(),
+      run: run("Create project documentation"),
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/at most 2 documents/i);
+    expect(prompt).toMatch(/Sources, Steps, and Risks/);
+    expect(prompt).toMatch(/project documents wait for Accept/);
+    expect(prompt).toMatch(/Notion-quality/i);
+    expect(prompt).toMatch(/italic tagline/);
+    expect(prompt).toMatch(/web_search/);
+    expect(prompt).toMatch(/Do not emit one delegate_agent per document type/);
+    expect(prompt).toMatch(/Do not fairlx_work_item_get each epic/);
+    expect(prompt).toMatch(/packComplete/);
+    expect(prompt).toMatch(/research_required/);
+  });
+
+  it("skips GitHub code analysis when the project has no linked repo", () => {
+    const ctx = context();
+    ctx.githubRepos = [];
+    const prompt = buildSystemPrompt({
+      harness: harness(),
+      context: ctx,
+      run: run("Create project documentation"),
+      mcp: { mcpServers: { fairlx: { url: "/api/mcp", transport: "http" } } },
+    });
+    expect(prompt).toMatch(/none linked/i);
+    expect(prompt).toMatch(/do not call github_list_files/i);
+    expect(prompt).toMatch(/Skip technical_spec, api_doc/);
+    expect(prompt).not.toMatch(/then github_list_files or github_read_file/);
   });
 
   it("locks specialist passes into their role", () => {
@@ -374,5 +413,127 @@ describe("transcript grouping", () => {
     );
     expect(summary.ok).toBe(false);
     expect(summary.detail).toContain("Method not found");
+  });
+
+  it("keeps thinking and errors on a failed turn instead of dropping them", () => {
+    const t0 = "2026-09-05T10:00:00.000Z";
+    const t1 = "2026-09-05T10:00:05.000Z";
+    const t2 = "2026-09-05T10:00:12.000Z";
+    const turns = groupConversationTurns(
+      [
+        { id: "u1", role: "user", content: "Assign epics", createdAt: t0 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: "",
+          createdAt: t1,
+          toolCalls: [{ id: "c1", name: "fairlx_work_item_list", arguments: "{}" }],
+        },
+        {
+          id: "t1",
+          role: "tool",
+          toolCallId: "c1",
+          toolName: "fairlx_work_item_list",
+          content: JSON.stringify({ workItems: [{ key: "SCHO-1" }] }),
+          createdAt: t1,
+        },
+      ],
+      [
+        { id: "th1", type: "thought", title: "Thinking", createdAt: t0, runId: "run1" },
+        { id: "th2", type: "thought", title: "Planning next steps", detail: "Need to match epics", createdAt: t1, runId: "run1" },
+        { id: "e1", type: "list_work_items", title: "Listed work items", createdAt: t1, runId: "run1" },
+        { id: "err", type: "error", title: "Turn failed", detail: "fetch failed", createdAt: t2, runId: "run1" },
+      ],
+    );
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.thoughts.map((event) => event.title)).toEqual(["Thinking", "Planning next steps"]);
+    expect(turns[0]?.activity.some((event) => event.type === "error")).toBe(true);
+    expect(turns[0]?.blocks.map((block) => block.kind)).toEqual(["steps"]);
+  });
+
+  it("keeps llm usage on the turn for the usage card", () => {
+    const turns = groupConversationTurns(
+      [{ id: "u1", role: "user", content: "Hi", createdAt: "2026-09-05T10:00:00.000Z" }],
+      [
+        {
+          id: "u",
+          type: "llm_usage",
+          title: "GPT-5.6 Luna · 334 tokens",
+          payload: {
+            role: "orchestrator",
+            displayName: "GPT-5.6 Luna",
+            promptTokens: 291,
+            completionTokens: 43,
+            cachedTokens: 0,
+            totalTokens: 334,
+            billed: true,
+            costUSD: 0.0001,
+          },
+          createdAt: "2026-09-05T10:00:02.000Z",
+          runId: "run1",
+        },
+      ],
+    );
+    expect(turns[0]?.usage).toHaveLength(1);
+    expect(turns[0]?.usage[0]?.type).toBe("llm_usage");
+    expect(turns[0]?.activity.some((event) => event.type === "llm_usage")).toBe(false);
+    expect(turns[0]?.activity.some((event) => /Grok|Luna|tokens/i.test(event.title))).toBe(false);
+  });
+
+  it("does not leak three model usage events into activity lines", () => {
+    const turns = groupConversationTurns(
+      [{ id: "u1", role: "user", content: "unassign sprint 1", createdAt: "2026-09-05T10:00:00.000Z" }],
+      [
+        { id: "th1", type: "thought", title: "Working", createdAt: "2026-09-05T10:00:01.000Z", runId: "run1" },
+        {
+          id: "u1e",
+          type: "llm_usage",
+          title: "Grok 4.6 · 8,388 tokens",
+          detail: "$0.0187 · 0% cache",
+          payload: { displayName: "Grok 4.6", totalTokens: 8388, promptTokens: 8000, completionTokens: 388, billed: true, costUSD: 0.0187 },
+          createdAt: "2026-09-05T10:00:02.000Z",
+          runId: "run1",
+        },
+        {
+          id: "u2e",
+          type: "llm_usage",
+          title: "Grok 4.6 · 11,365 tokens",
+          detail: "$0.0127 · 70% cache",
+          payload: { displayName: "Grok 4.6", totalTokens: 11365, promptTokens: 11000, completionTokens: 365, billed: true, costUSD: 0.0127 },
+          createdAt: "2026-09-05T10:00:03.000Z",
+          runId: "run1",
+        },
+        {
+          id: "u3e",
+          type: "llm_usage",
+          title: "Grok 4.6 · 9,784 tokens",
+          detail: "$0.0085 · 86% cache",
+          payload: { displayName: "Grok 4.6", totalTokens: 9784, promptTokens: 9500, completionTokens: 284, billed: true, costUSD: 0.0085 },
+          createdAt: "2026-09-05T10:00:04.000Z",
+          runId: "run1",
+        },
+      ],
+    );
+    expect(turns[0]?.usage.filter((event) => event.type === "llm_usage")).toHaveLength(3);
+    expect(turns[0]?.activity).toEqual([]);
+    expect(turns[0]?.thoughts.map((event) => event.title)).toEqual(["Working"]);
+  });
+
+  it("hides pass-number thought noise", () => {
+    const lines = visibleThoughtLines([
+      { id: "1", type: "thought", title: "Working", createdAt: "2026-09-05T10:00:00.000Z", runId: "r" },
+      { id: "2", type: "thought", title: "Thinking", detail: "Pass 1", createdAt: "2026-09-05T10:00:01.000Z", runId: "r" },
+      { id: "3", type: "thought", title: "Planning next steps", detail: "Pass 2", createdAt: "2026-09-05T10:00:02.000Z", runId: "r" },
+      {
+        id: "4",
+        type: "thought",
+        title: "Reasoning",
+        detail: "Clear assignees, then assign Sprint 1 to Fogef.",
+        createdAt: "2026-09-05T10:00:03.000Z",
+        runId: "r",
+      },
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.detail).toMatch(/Fogef/);
   });
 });

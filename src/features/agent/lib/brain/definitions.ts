@@ -33,12 +33,13 @@ export const AGENT_DEFINITIONS: Record<
     prefixes: ["fairlx_work_item", "fairlx_sprint", "fairlx_doc"],
   },
   researcher: {
-    identity: "Search Fairlx records, docs, repos, and the web. Cite tool results.",
+    identity: "Search Fairlx records, docs, repos, and the public web. Cite URLs from web_search and web_fetch. Do not write documents.",
     done: "Cited findings from tools, not guesses.",
     model: "worker",
     tools: [
       "search_harness",
       "web_search",
+      "web_fetch",
       "file_search",
       "code_inspect",
       "github_read_file",
@@ -59,6 +60,8 @@ export const AGENT_DEFINITIONS: Record<
     tools: [
       "use_skill",
       "create_project",
+      "web_search",
+      "web_fetch",
       "github_read_file",
       "github_list_files",
       "github_write_file",
@@ -125,10 +128,11 @@ export const AGENT_DEFINITIONS: Record<
       "fairlx_project_team_create",
       "fairlx_project_member_add",
       "fairlx_project_team_member_add",
-      "fairlx_project_teams_list",
+      "fairlx_project_team_list",
+      "fairlx_usage_summary",
       "request_capability",
     ],
-    prefixes: ["mail_", "fairlx_workspace", "fairlx_organization", "fairlx_project_member", "fairlx_project_team", "fairlx_comment", "fairlx_work_item"],
+    prefixes: ["mail_", "fairlx_workspace", "fairlx_organization", "fairlx_project_member", "fairlx_project_team", "fairlx_comment", "fairlx_work_item", "fairlx_usage"],
   },
   security: {
     identity: "Review linked source for vulnerabilities. Cite file paths. Never exploit production.",

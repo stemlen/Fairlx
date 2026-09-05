@@ -314,7 +314,7 @@ export function UsageCharts({
 
         if (!aiEvents.length) return { models: [], totalCost: 0, totalCalls: 0, totalTokens: 0 };
 
-        const byModel: Record<string, { calls: number; promptTokens: number; completionTokens: number; totalTokens: number; costUSD: number }> = {};
+        const byModel: Record<string, { calls: number; promptTokens: number; completionTokens: number; cachedTokens: number; totalTokens: number; costUSD: number }> = {};
 
         for (const event of aiEvents) {
             const meta = typeof event.metadata === "string" ? JSON.parse(event.metadata) : (event.metadata || {});
@@ -322,11 +322,12 @@ export function UsageCharts({
             const costUsd = Number(meta.costUSD || 0);
             const convertedCost = costUsd * exchangeRate;
             if (!byModel[model]) {
-                byModel[model] = { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, costUSD: 0 };
+                byModel[model] = { calls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, totalTokens: 0, costUSD: 0 };
             }
             byModel[model].calls++;
             byModel[model].promptTokens += Number(meta.promptTokens || 0);
             byModel[model].completionTokens += Number(meta.completionTokens || 0);
+            byModel[model].cachedTokens += Number(meta.cachedTokens || 0);
             byModel[model].totalTokens += Number(meta.totalTokens || meta.tokensUsed || 0);
             byModel[model].costUSD += convertedCost;
         }
@@ -545,6 +546,7 @@ export function UsageCharts({
                                         <div className="text-2xl font-bold text-emerald-500">
                                             {new Intl.NumberFormat("en-US", { style: "currency", currency }).format(aiCostBreakdown.totalCost)}
                                         </div>
+                                        <div className="text-[11px] text-muted-foreground mt-1">Billed at Azure list + 15%</div>
                                     </div>
                                     <div className="rounded-lg border border-border bg-muted/50 p-4">
                                         <div className="text-sm text-muted-foreground">Total Calls</div>
@@ -564,8 +566,9 @@ export function UsageCharts({
                                                 <th className="text-left py-2 px-3 font-medium">Model</th>
                                                 <th className="text-right py-2 px-3 font-medium">Calls</th>
                                                 <th className="text-right py-2 px-3 font-medium">Input Tokens</th>
+                                                <th className="text-right py-2 px-3 font-medium">Cached Tokens</th>
                                                 <th className="text-right py-2 px-3 font-medium">Output Tokens</th>
-                                                <th className="text-right py-2 px-3 font-medium">Cost ({currency})</th>
+                                                <th className="text-right py-2 px-3 font-medium">Billed ({currency})</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -578,6 +581,7 @@ export function UsageCharts({
                                                     </td>
                                                     <td className="text-right py-2 px-3">{m.calls.toLocaleString()}</td>
                                                     <td className="text-right py-2 px-3">{m.promptTokens.toLocaleString()}</td>
+                                                    <td className="text-right py-2 px-3">{m.cachedTokens.toLocaleString()}</td>
                                                     <td className="text-right py-2 px-3">{m.completionTokens.toLocaleString()}</td>
                                                     <td className="text-right py-2 px-3 font-semibold text-emerald-500">
                                                         {new Intl.NumberFormat("en-US", { style: "currency", currency }).format(m.costUSD)}
@@ -590,6 +594,7 @@ export function UsageCharts({
                                                 <td className="py-2 px-3">Total</td>
                                                 <td className="text-right py-2 px-3">{aiCostBreakdown.totalCalls.toLocaleString()}</td>
                                                 <td className="text-right py-2 px-3">{aiCostBreakdown.models.reduce((s, m) => s + m.promptTokens, 0).toLocaleString()}</td>
+                                                <td className="text-right py-2 px-3">{aiCostBreakdown.models.reduce((s, m) => s + m.cachedTokens, 0).toLocaleString()}</td>
                                                 <td className="text-right py-2 px-3">{aiCostBreakdown.models.reduce((s, m) => s + m.completionTokens, 0).toLocaleString()}</td>
                                                 <td className="text-right py-2 px-3 text-emerald-500">
                                                     {new Intl.NumberFormat("en-US", { style: "currency", currency }).format(aiCostBreakdown.totalCost)}

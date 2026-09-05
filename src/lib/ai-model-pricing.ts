@@ -2,19 +2,33 @@ import "server-only";
 
 import { Databases, Models, Query } from "node-appwrite";
 import { DATABASE_ID, AI_MODEL_PRICING_ID } from "@/config";
+import {
+    calculateCustomerTokenCostUSD,
+    calculateProviderTokenCostUSD,
+} from "@/lib/ai-billing";
+
+export { AI_CUSTOMER_MARKUP, WALLET_OVERDRAFT_LIMIT_USD } from "@/lib/ai-billing";
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+export type AIPricingSource =
+    | "google_scraper"
+    | "google_api"
+    | "azure_foundry"
+    | "admin_override"
+    | "fallback_default";
 
 export interface AIModelPricing {
     modelId: string;
     displayName: string;
     inputPricePerMillionTokens: number;
     outputPricePerMillionTokens: number;
+    cachedInputPricePerMillionTokens?: number;
     isActive: boolean;
     tier: "economy" | "standard" | "flagship";
-    pricingSource: "google_scraper" | "google_api" | "admin_override" | "fallback_default";
+    pricingSource: AIPricingSource;
     lastSyncedAt?: string;
     inputTokenLimit?: number;
     outputTokenLimit?: number;
@@ -32,15 +46,84 @@ type AIModelPricingDoc = Models.Document & AIModelPricing & {
 
 /**
  * Fallback pricing used ONLY when both DB and pricing sync are unavailable.
- * Based on Google's published pricing as of 2026-04.
- * Updated during code deployments — serves as a safety net.
+ *
+ * Grok 4.6 Global Standard (Microsoft Foundry, Aug 2026):
+ * $2.00 input / $6.00 output / $0.50 cached per 1M tokens.
+ * DeepSeek V4 Flash (Microsoft Foundry): $0.19 / $0.51 / $0.028 cached.
+ * GPT-5.6 Luna (Microsoft Foundry, Aug 2026 OpenAI parity):
+ * $0.20 input / $1.20 output / $0.02 cached per 1M tokens.
  */
 const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
+    "grok-4.6": {
+        modelId: "grok-4.6",
+        displayName: "Grok 4.6",
+        inputPricePerMillionTokens: 2.00,
+        outputPricePerMillionTokens: 6.00,
+        cachedInputPricePerMillionTokens: 0.50,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+        lastSyncedAt: "2026-09-05T00:00:00.000Z",
+    },
+    "grok-4": {
+        modelId: "grok-4",
+        displayName: "Grok 4",
+        inputPricePerMillionTokens: 3.00,
+        outputPricePerMillionTokens: 15.00,
+        cachedInputPricePerMillionTokens: 0.75,
+        isActive: true,
+        tier: "flagship",
+        pricingSource: "azure_foundry",
+    },
+    "grok-4-fast": {
+        modelId: "grok-4-fast",
+        displayName: "Grok 4 Fast",
+        inputPricePerMillionTokens: 0.20,
+        outputPricePerMillionTokens: 0.50,
+        cachedInputPricePerMillionTokens: 0.05,
+        isActive: true,
+        tier: "economy",
+        pricingSource: "azure_foundry",
+    },
+    "DeepSeek-V4-Flash": {
+        modelId: "DeepSeek-V4-Flash",
+        displayName: "DeepSeek V4 Flash",
+        inputPricePerMillionTokens: 0.19,
+        outputPricePerMillionTokens: 0.51,
+        cachedInputPricePerMillionTokens: 0.028,
+        isActive: true,
+        tier: "economy",
+        pricingSource: "azure_foundry",
+    },
+    "DeepSeek-V4-Flash-0731": {
+        modelId: "DeepSeek-V4-Flash-0731",
+        displayName: "DeepSeek V4 Flash 0731",
+        inputPricePerMillionTokens: 0.44,
+        outputPricePerMillionTokens: 1.32,
+        cachedInputPricePerMillionTokens: 0.014,
+        isActive: true,
+        tier: "standard",
+        pricingSource: "azure_foundry",
+    },
+    "gpt-5.6-luna": {
+        modelId: "gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        inputPricePerMillionTokens: 0.20,
+        outputPricePerMillionTokens: 1.20,
+        cachedInputPricePerMillionTokens: 0.02,
+        isActive: true,
+        tier: "economy",
+        pricingSource: "azure_foundry",
+        lastSyncedAt: "2026-09-05T00:00:00.000Z",
+        inputTokenLimit: 1050000,
+        outputTokenLimit: 128000,
+    },
     "gemini-2.5-flash": {
         modelId: "gemini-2.5-flash",
         displayName: "Gemini 2.5 Flash",
         inputPricePerMillionTokens: 0.15,
         outputPricePerMillionTokens: 0.60,
+        cachedInputPricePerMillionTokens: 0.0375,
         isActive: true,
         tier: "economy",
         pricingSource: "fallback_default",
@@ -50,6 +133,7 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         displayName: "Gemini 2.5 Pro",
         inputPricePerMillionTokens: 1.25,
         outputPricePerMillionTokens: 10.00,
+        cachedInputPricePerMillionTokens: 0.3125,
         isActive: true,
         tier: "standard",
         pricingSource: "fallback_default",
@@ -59,6 +143,7 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         displayName: "Gemini 2.5 Flash Lite",
         inputPricePerMillionTokens: 0.075,
         outputPricePerMillionTokens: 0.30,
+        cachedInputPricePerMillionTokens: 0.01875,
         isActive: true,
         tier: "economy",
         pricingSource: "fallback_default",
@@ -68,6 +153,7 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         displayName: "Gemini 2.0 Flash",
         inputPricePerMillionTokens: 0.10,
         outputPricePerMillionTokens: 0.40,
+        cachedInputPricePerMillionTokens: 0.025,
         isActive: true,
         tier: "economy",
         pricingSource: "fallback_default",
@@ -77,6 +163,7 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         displayName: "Gemini 3 Flash Preview",
         inputPricePerMillionTokens: 0.15,
         outputPricePerMillionTokens: 0.60,
+        cachedInputPricePerMillionTokens: 0.0375,
         isActive: true,
         tier: "standard",
         pricingSource: "fallback_default",
@@ -86,11 +173,32 @@ const AI_MODEL_PRICING_DEFAULTS: Record<string, AIModelPricing> = {
         displayName: "Gemini 3.1 Pro Preview",
         inputPricePerMillionTokens: 1.25,
         outputPricePerMillionTokens: 10.00,
+        cachedInputPricePerMillionTokens: 0.3125,
         isActive: true,
         tier: "flagship",
         pricingSource: "fallback_default",
     },
 };
+
+function docToPricing(doc: AIModelPricingDoc): AIModelPricing {
+    const cached = Number(doc.cachedInputPricePerMillionTokens);
+    return {
+        modelId: doc.modelId,
+        displayName: doc.displayName,
+        inputPricePerMillionTokens: doc.inputPricePerMillionTokens,
+        outputPricePerMillionTokens: doc.outputPricePerMillionTokens,
+        cachedInputPricePerMillionTokens: Number.isFinite(cached) && cached >= 0 ? cached : undefined,
+        isActive: doc.isActive,
+        tier: doc.tier,
+        pricingSource: doc.pricingSource,
+        lastSyncedAt: doc.lastSyncedAt,
+        inputTokenLimit: doc.inputTokenLimit,
+        outputTokenLimit: doc.outputTokenLimit,
+        supportedMethods: doc.supportedMethods
+            ? JSON.parse(doc.supportedMethods as string)
+            : undefined,
+    };
+}
 
 // ============================================================================
 // IN-MEMORY CACHE (5-min TTL)
@@ -124,7 +232,7 @@ const ALL_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
  *   "gemini-2.5-flash" → "gemini-2.5-flash"
  */
 export function normalizeModelId(rawModelId: string): string {
-    let modelId = rawModelId;
+    let modelId = rawModelId.trim();
 
     // Strip "models/" prefix
     if (modelId.startsWith("models/")) {
@@ -177,22 +285,7 @@ export async function getAIModelPricing(
         );
 
         if (docs.total > 0) {
-            const doc = docs.documents[0];
-            const pricing: AIModelPricing = {
-                modelId: doc.modelId,
-                displayName: doc.displayName,
-                inputPricePerMillionTokens: doc.inputPricePerMillionTokens,
-                outputPricePerMillionTokens: doc.outputPricePerMillionTokens,
-                isActive: doc.isActive,
-                tier: doc.tier,
-                pricingSource: doc.pricingSource,
-                lastSyncedAt: doc.lastSyncedAt,
-                inputTokenLimit: doc.inputTokenLimit,
-                outputTokenLimit: doc.outputTokenLimit,
-                supportedMethods: doc.supportedMethods
-                    ? JSON.parse(doc.supportedMethods as string)
-                    : undefined,
-            };
+            const pricing = docToPricing(docs.documents[0]);
 
             // Update cache
             pricingCache.set(modelId, {
@@ -220,17 +313,20 @@ export async function getAIModelPricing(
 export function getFallbackPricing(rawModelId: string): AIModelPricing {
     const modelId = normalizeModelId(rawModelId);
 
-    // Exact match
-    if (AI_MODEL_PRICING_DEFAULTS[modelId]) {
-        return AI_MODEL_PRICING_DEFAULTS[modelId];
+    // Exact match (case-insensitive for Azure deployment names)
+    const exact = AI_MODEL_PRICING_DEFAULTS[modelId]
+        || Object.entries(AI_MODEL_PRICING_DEFAULTS).find(([key]) => key.toLowerCase() === modelId.toLowerCase())?.[1];
+    if (exact) {
+        return { ...exact, modelId };
     }
 
-    // Partial match: try to find a model family match
-    // e.g. "gemini-2.5-flash-001" should match "gemini-2.5-flash"
-    for (const [key, pricing] of Object.entries(AI_MODEL_PRICING_DEFAULTS)) {
-        if (modelId.startsWith(key) || key.startsWith(modelId)) {
-            return { ...pricing, modelId };
-        }
+    // Longest-prefix match so grok-4.6 is not billed as grok-4.
+    const lower = modelId.toLowerCase();
+    const matches = Object.entries(AI_MODEL_PRICING_DEFAULTS)
+        .filter(([key]) => lower.startsWith(key.toLowerCase()) || key.toLowerCase().startsWith(lower))
+        .sort((a, b) => b[0].length - a[0].length);
+    if (matches[0]) {
+        return { ...matches[0][1], modelId };
     }
 
     // Ultimate fallback: return a safe economy-tier default
@@ -242,6 +338,7 @@ export function getFallbackPricing(rawModelId: string): AIModelPricing {
         displayName: modelId,
         inputPricePerMillionTokens: 0.15,
         outputPricePerMillionTokens: 0.60,
+        cachedInputPricePerMillionTokens: 0.0375,
         isActive: true,
         tier: "economy",
         pricingSource: "fallback_default",
@@ -249,21 +346,48 @@ export function getFallbackPricing(rawModelId: string): AIModelPricing {
 }
 
 /**
- * Calculate the exact USD cost for an AI call.
- *
- * @param pricing - Model pricing data
- * @param promptTokens - Number of input/prompt tokens
- * @param completionTokens - Number of output/completion tokens
- * @returns Cost in USD (e.g., 0.0024)
+ * Customer USD cost for an AI call: provider list × 15% markup.
  */
 export function calculateAICallCostUSD(
     pricing: AIModelPricing,
     promptTokens: number,
-    completionTokens: number
+    completionTokens: number,
+    cachedTokens = 0,
 ): number {
-    const inputCost = (promptTokens / 1_000_000) * pricing.inputPricePerMillionTokens;
-    const outputCost = (completionTokens / 1_000_000) * pricing.outputPricePerMillionTokens;
-    return inputCost + outputCost;
+    return calculateCustomerTokenCostUSD(
+        pricing,
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+    ).costUSD;
+}
+
+export function calculateAICallCosts(
+    pricing: AIModelPricing,
+    promptTokens: number,
+    completionTokens: number,
+    cachedTokens = 0,
+) {
+    return calculateCustomerTokenCostUSD(
+        pricing,
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+    );
+}
+
+export function calculateProviderAICallCostUSD(
+    pricing: AIModelPricing,
+    promptTokens: number,
+    completionTokens: number,
+    cachedTokens = 0,
+): number {
+    return calculateProviderTokenCostUSD(
+        pricing,
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+    );
 }
 
 /**
@@ -294,21 +418,7 @@ export async function getAllActiveModels(
             ]
         );
 
-        const models: AIModelPricing[] = docs.documents.map((doc) => ({
-            modelId: doc.modelId,
-            displayName: doc.displayName,
-            inputPricePerMillionTokens: doc.inputPricePerMillionTokens,
-            outputPricePerMillionTokens: doc.outputPricePerMillionTokens,
-            isActive: doc.isActive,
-            tier: doc.tier,
-            pricingSource: doc.pricingSource,
-            lastSyncedAt: doc.lastSyncedAt,
-            inputTokenLimit: doc.inputTokenLimit,
-            outputTokenLimit: doc.outputTokenLimit,
-            supportedMethods: doc.supportedMethods
-                ? JSON.parse(doc.supportedMethods as string)
-                : undefined,
-        }));
+        const models: AIModelPricing[] = docs.documents.map((doc) => docToPricing(doc));
 
         // Update cache
         allModelsCache = {
@@ -336,4 +446,8 @@ export function invalidatePricingCache(modelId?: string): void {
         pricingCache.clear();
         allModelsCache = null;
     }
+}
+
+export function listFallbackPricing(): AIModelPricing[] {
+    return Object.values(AI_MODEL_PRICING_DEFAULTS);
 }

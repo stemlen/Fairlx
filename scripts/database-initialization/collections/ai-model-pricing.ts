@@ -31,6 +31,7 @@ export async function setupAIModelPricing(databases: Databases, databaseId: stri
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'displayName', 200, true);
     await ensureFloatAttribute(databases, databaseId, COLLECTION_ID, 'inputPricePerMillionTokens', true);
     await ensureFloatAttribute(databases, databaseId, COLLECTION_ID, 'outputPricePerMillionTokens', true);
+    await ensureFloatAttribute(databases, databaseId, COLLECTION_ID, 'cachedInputPricePerMillionTokens', false);
     // Note: Appwrite doesn't allow defaults on required attrs, so these are optional with defaults
     await ensureBooleanAttribute(databases, databaseId, COLLECTION_ID, 'isActive', false, true);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'tier', 20, false, 'standard');

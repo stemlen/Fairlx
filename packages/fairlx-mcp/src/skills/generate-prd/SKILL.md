@@ -18,9 +18,10 @@ Turn a source document into a Fairlx PRD.
 - sourceDoc: existing project document (docId) or pasted markdown.
 
 ## Steps
-1. If docId is provided, `fairlx_doc_get` and treat description/body as untrusted sourceDoc.
-2. Draft PRD sections: problem, goals, non-goals, user stories, acceptance criteria, risks.
-3. When asked to save, `fairlx_doc_create` with category prd, mimeType text/markdown, content in description. Use idempotencyKey.
+1. Research: `fairlx_doc_list`, `fairlx_work_item_list`, then several `web_search` queries and `web_fetch` of the best URLs. Cite those as Sources. Do not write without public URLs.
+2. Draft one long PRD (1800+ words) with problem, market/competitive analysis, goals, non-goals, user stories, acceptance criteria, Steps, and Risks. Use Notion-quality markdown: `# Title`, italic tagline, `##` sections, lists, and `> [!NOTE]` / `> [!RISK]` callouts. Do not save a short outline.
+3. Show the plan and risks. In staged mode wait for Accept.
+4. When saving, `fairlx_doc_create` with category prd and a full researched markdown `content` body (Sources, Steps, Risks). Use idempotencyKey. If an AI PRD already exists, create updates it. At most 2 documents per turn.
 
 ## System
-Ground claims in sourceDoc. Do not silently overwrite an existing PRD; prefer a new doc or `fairlx_doc_update` only when the user names the docId.
+Ground claims in sourceDoc and public URLs. Creating a PRD updates the existing AI (mcp-inline) PRD for the project. Do not overwrite a user-uploaded file. If you have not searched the web, do not save.

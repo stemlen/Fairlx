@@ -18,7 +18,7 @@ export async function callTool(
 ): Promise<McpToolResult> {
   const def = getToolDefinition(name);
   if (!def) throw methodNotFound(name);
-  if (def.rateClass === "read") return handleReadTool(name, args, runtime, auth);
-  if (def.rateClass === "destructive") return handleDestructiveTool(name, args, runtime, auth);
-  return handleWriteTool(name, args, runtime, auth);
+  if (def.rateClass === "read") return handleReadTool(def.name, args, runtime, auth);
+  if (def.rateClass === "destructive") return handleDestructiveTool(def.name, args, runtime, auth);
+  return handleWriteTool(def.name, args, runtime, auth);
 }

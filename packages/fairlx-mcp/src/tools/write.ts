@@ -34,12 +34,19 @@ import {
   type NamedMember,
 } from "./member-match";
 import {
+  hasNotionDocStructure,
+  normalizeMarkdownSpacing,
+  NOTION_DOC_STRUCTURE_ERROR,
+} from "../lib/project-doc-markdown";
+import { isDocPackCategory } from "../lib/project-doc-pack";
+import { projectDocQualityError } from "../lib/project-doc-quality";
+import {
   projectMemberAdd,
   projectTeamCreate,
   projectTeamMemberAdd,
   projectTeamUpdate,
 } from "./write-team";
-import { organizationUpdate } from "./organization";
+import { organizationUpdate, departmentCreate, departmentPermissionAdd } from "./organization";
 
 export async function handleWriteTool(
   name: string,
@@ -109,6 +116,10 @@ export async function handleWriteTool(
       return projectTeamMemberAdd(args, runtime, auth);
     case "fairlx_organization_update":
       return organizationUpdate(args, runtime, auth);
+    case "fairlx_department_create":
+      return departmentCreate(args, runtime, auth);
+    case "fairlx_department_permission_add":
+      return departmentPermissionAdd(args, runtime, auth);
     default:
       throw invalidParams(`Unknown write tool: ${name}`);
   }
@@ -576,22 +587,105 @@ async function assignEpicsInProject(
   });
 }
 
+function documentSprintId(doc: Record<string, unknown>): string {
+  if (doc.sprintId == null) return "";
+  const value = String(doc.sprintId).trim();
+  if (!value || value === "null" || value === "undefined") return "";
+  return value;
+}
+
+function sprintOrdinal(name: string): number | undefined {
+  const match = name
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .match(/^sprint\s+(\d+)\b/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function sprintNameMatches(name: string, query: string): boolean {
+  const n = name.toLowerCase().replace(/\s+/g, " ").trim();
+  const q = query.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!n || !q) return false;
+  if (n === q) return true;
+  const numbered = q.match(/^(?:sprint\s+)?(\d+)$/);
+  if (numbered) return sprintOrdinal(n) === Number(numbered[1]);
+  if (n.startsWith(q) && (n.length === q.length || /[\s—–-]/.test(n[q.length] ?? ""))) return true;
+  return false;
+}
+
+async function resolveSprintId(
+  runtime: McpRuntime,
+  projectId: string,
+  raw: string,
+): Promise<string> {
+  const query = raw.trim();
+  if (!query) throw invalidParams("sprintId is required");
+  try {
+    const sprint = await runtime.store.get<Record<string, unknown>>(runtime.collections.sprints, query);
+    if (String(sprint.projectId ?? "") === projectId) {
+      return String(sprint.$id ?? sprint.id ?? query);
+    }
+  } catch {
+    // Resolve by sprint name / number next.
+  }
+  const docs = await listAllDocuments(runtime, runtime.collections.sprints, [
+    { type: "equal", field: "projectId", value: projectId },
+  ]);
+  const matches = docs.filter((doc) => sprintNameMatches(String(doc.name ?? ""), query));
+  if (matches.length === 1) return String(matches[0]!.$id ?? matches[0]!.id ?? "");
+  if (matches.length > 1) {
+    throw invalidParams(
+      `Several sprints match "${query}": ${matches
+        .map((doc) => String(doc.name ?? ""))
+        .filter(Boolean)
+        .join(", ")}. Pass the sprint id.`,
+    );
+  }
+  throw notFoundError(`Sprint not found: ${query}`);
+}
+
+function isEmptyAssigneeInput(raw: unknown): boolean {
+  if (raw === undefined) return true;
+  if (Array.isArray(raw)) {
+    return raw.every((entry) => typeof entry !== "string" || !entry.trim());
+  }
+  if (typeof raw === "string") return !raw.trim();
+  return false;
+}
+
+function workItemKeysOf(docs: Record<string, unknown>[]): string[] {
+  return docs.map((doc) => String(doc.key ?? doc.$id ?? "")).filter(Boolean);
+}
+
 async function workItemBulkUpdate(
   args: Record<string, unknown>,
   runtime: McpRuntime,
   auth: AuthContext
 ): Promise<McpToolResult> {
   const percent = parseAssignPercent(args.assignPercent ?? args.percent);
-  if (percent !== undefined && (percent < 1 || percent > 100)) {
-    throw invalidParams("assignPercent must be between 1 and 100");
+  if (percent !== undefined && percent !== 0 && (percent < 1 || percent > 100)) {
+    throw invalidParams("assignPercent must be 0 (clear assignees) or between 1 and 100");
   }
   const assignEpics = optionalBoolean(args, "assignEpics") === true;
   if (assignEpics) {
     return assignEpicsInProject(args, runtime, auth);
   }
-  let ids = Array.isArray(args.workItemIds)
+  const explicitIds = Array.isArray(args.workItemIds)
     ? args.workItemIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
+  let ids = explicitIds;
+  const sprintRef =
+    optionalString(args, "sprint") ||
+    optionalString(args, "sprintName") ||
+    optionalString(args, "sprintId");
+  const assigneeInput = assigneeInputFromArgs(args);
+  const clearAssignees =
+    optionalBoolean(args, "clearAssignees") === true ||
+    percent === 0 ||
+    (ids.length === 0 && args.assigneeIds !== undefined && isEmptyAssigneeInput(assigneeInput));
+  const wantsSprintAssign =
+    ids.length === 0 && !clearAssignees && Boolean(sprintRef) && !isEmptyAssigneeInput(assigneeInput);
   let share:
     | {
         total: number;
@@ -601,14 +695,41 @@ async function workItemBulkUpdate(
         pick: string[];
       }
     | undefined;
-  if (ids.length === 0 && percent !== undefined) {
+  let sprintUsedAsScope = false;
+  if (ids.length === 0 && (clearAssignees || wantsSprintAssign)) {
+    const projectId = optionalString(args, "projectId") || auth.projectId;
+    if (!projectId) {
+      throw invalidParams("projectId is required when updating a sprint or clearing assignees without workItemIds");
+    }
+    await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.EDIT_TASKS, ["tasks:write"]);
+    sprintUsedAsScope = true;
+    const docs = await listAllDocuments(runtime, runtime.collections.workItems, [
+      { type: "equal", field: "projectId", value: projectId },
+    ]);
+    let scoped = docs;
+    if (sprintRef) {
+      const sprintId = await resolveSprintId(runtime, projectId, sprintRef);
+      scoped = docs.filter((doc) => documentSprintId(doc) === sprintId);
+    } else if (optionalBoolean(args, "includeBacklog") !== true) {
+      scoped = docs.filter((doc) => Boolean(documentSprintId(doc)));
+    }
+    ids = workItemKeysOf(scoped);
+    if (ids.length === 0) {
+      return toolResult({
+        count: 0,
+        cleared: clearAssignees,
+        assigned: false,
+        assignedKeys: [],
+        workItems: [],
+      });
+    }
+  } else if (ids.length === 0 && percent !== undefined && percent > 0) {
     const projectId = optionalString(args, "projectId") || auth.projectId;
     if (!projectId) {
       throw invalidParams("projectId is required when using assignPercent without workItemIds");
     }
     await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.EDIT_TASKS, ["tasks:write"]);
-    const assigneeInput = assigneeInputFromArgs(args);
-    if (assigneeInput === undefined) {
+    if (isEmptyAssigneeInput(assigneeInput)) {
       throw invalidParams("assigneeIds is required when using assignPercent");
     }
     const person = String(coerceAssigneeList(assigneeInput)[0] ?? "").trim();
@@ -654,7 +775,9 @@ async function workItemBulkUpdate(
       return toolResult({ count: 0, assignedKeys: [], workItems: [], alreadyHadEpic: true });
     }
   } else if (ids.length === 0) {
-    throw invalidParams("workItemIds is required");
+    throw invalidParams(
+      "workItemIds is required. To unassign every sprint item, pass clearAssignees: true. To assign a whole sprint, pass sprintId (name or number) and assigneeIds.",
+    );
   }
   const updated: unknown[] = [];
   for (const id of ids) {
@@ -665,9 +788,12 @@ async function workItemBulkUpdate(
     ]);
     const patch: Record<string, unknown> = {};
     if (args.status !== undefined) patch.status = args.status;
-    if (args.sprintId !== undefined) patch.sprintId = args.sprintId;
-    const assigneeInput = assigneeInputFromArgs(args);
-    if (assigneeInput !== undefined) {
+    if (!sprintUsedAsScope && explicitIds.length > 0 && args.sprintId !== undefined) {
+      patch.sprintId = args.sprintId;
+    }
+    if (clearAssignees) {
+      patch.assigneeIds = [];
+    } else if (assigneeInput !== undefined) {
       patch.assigneeIds = await resolveAssigneeIds(runtime, auth, item, assigneeInput);
     }
     if (args.priority !== undefined) patch.priority = args.priority;
@@ -689,7 +815,10 @@ async function workItemBulkUpdate(
   return toolResult({
     workItems: updated,
     count: updated.length,
-    assigned: updated.every((item) => (item as { unassigned?: boolean }).unassigned !== true),
+    cleared: clearAssignees,
+    assigned: clearAssignees
+      ? false
+      : updated.every((item) => (item as { unassigned?: boolean }).unassigned !== true),
     assignedKeys: updated
       .map((item) => String((item as { key?: unknown }).key ?? ""))
       .filter(Boolean),
@@ -1034,6 +1163,50 @@ async function timeLogAdd(
   return run();
 }
 
+const MAX_DOC_DESCRIPTION_CHARS = 4000;
+const MAX_DOC_BODY_CHARS = 65000;
+const INLINE_DOC_FILE_ID = "mcp-inline";
+
+async function findInlineDocByCategory(
+  runtime: McpRuntime,
+  projectId: string,
+  category: string,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const page = await runtime.store.list<Record<string, unknown>>(runtime.collections.projectDocs, [
+      { type: "equal", field: "projectId", value: projectId },
+      { type: "limit", value: 100 },
+    ]);
+    return page.documents.find(
+      (doc) =>
+        String(doc.category ?? "") === category &&
+        String(doc.fileId ?? "") === INLINE_DOC_FILE_ID &&
+        doc.isArchived !== true,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function splitProjectDocContent(content: string): { description: string; aiSummary: string; size: number } {
+  const body = content.trim();
+  return {
+    description: body.slice(0, MAX_DOC_DESCRIPTION_CHARS),
+    aiSummary: body.slice(0, MAX_DOC_BODY_CHARS),
+    size: body.length,
+  };
+}
+
+function requireSubstantialDoc(content: string, sources: unknown): string {
+  const body = content.trim();
+  const qualityError = projectDocQualityError(body, sources);
+  if (qualityError) throw invalidParams(qualityError);
+  if (!hasNotionDocStructure(body)) {
+    throw invalidParams(NOTION_DOC_STRUCTURE_ERROR);
+  }
+  return normalizeMarkdownSpacing(body);
+}
+
 async function docCreate(
   args: Record<string, unknown>,
   runtime: McpRuntime,
@@ -1043,27 +1216,51 @@ async function docCreate(
   const title = requireString(args, "title");
   await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.CREATE_DOCS, ["docs:write"]);
   const project = await loadProject(runtime, auth, projectId);
-  const content = optionalString(args, "content") ?? "";
+  const content = requireSubstantialDoc(optionalString(args, "content") ?? "", args.sources);
+  const split = splitProjectDocContent(content);
+  const category = optionalString(args, "category") ?? "other";
   const run = async () => {
+    const existing =
+      isDocPackCategory(category) ? await findInlineDocByCategory(runtime, projectId, category) : undefined;
+    if (existing?.$id || existing?.id) {
+      await requireProjectAccess(runtime, auth, projectId, PERMISSIONS.EDIT_DOCS, ["docs:write"]);
+      const docId = String(existing.$id ?? existing.id);
+      const updated = await runtime.store.update<Record<string, unknown>>(
+        runtime.collections.projectDocs,
+        docId,
+        {
+          title,
+          name: title,
+          description: split.description,
+          aiSummary: split.aiSummary,
+          size: split.size,
+          mimeType: "text/markdown",
+          tags: Array.isArray(args.tags) ? args.tags : existing.tags,
+          category,
+        },
+      );
+      return toolResult({ doc: withId(updated), updated: true });
+    }
     const doc = await runtime.store.create<Record<string, unknown>>(
       runtime.collections.projectDocs,
       {
         title,
         name: title,
-        description: content,
+        description: split.description,
+        aiSummary: split.aiSummary,
         projectId,
         workspaceId: String(project.workspaceId),
-        category: optionalString(args, "category") ?? "other",
-        size: content.length,
+        category,
+        size: split.size,
         mimeType: "text/markdown",
-        fileId: "mcp-inline",
+        fileId: INLINE_DOC_FILE_ID,
         uploadedBy: auth.actorUserId,
         tags: Array.isArray(args.tags) ? args.tags : [],
         version: "1.0",
         isArchived: false,
       }
     );
-    return toolResult({ doc: withId(doc) });
+    return toolResult({ doc: withId(doc), updated: false });
   };
   const idem = optionalString(args, "idempotencyKey");
   if (idem) return withIdempotency(runtime, idem, "fairlx_doc_create", run);
@@ -1091,8 +1288,12 @@ async function docUpdate(
     patch.name = patch.title;
   }
   if (args.content !== undefined) {
-    patch.description = String(args.content);
-    patch.size = String(args.content).length;
+    const body = requireSubstantialDoc(String(args.content), args.sources);
+    const split = splitProjectDocContent(body);
+    patch.description = split.description;
+    patch.aiSummary = split.aiSummary;
+    patch.size = split.size;
+    patch.mimeType = "text/markdown";
   }
   if (args.category !== undefined) patch.category = args.category;
   if (args.tags !== undefined) patch.tags = args.tags;

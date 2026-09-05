@@ -54,6 +54,8 @@ export enum OrgAuditAction {
     ORG_MEMBER_LEFT = "org_member_left",
     /** Billing settings updated (payment method, plan, etc.) */
     BILLING_UPDATED = "billing_updated",
+    /** Wallet overdraft reached -$20 and the account was locked */
+    ACCOUNT_LOCKED = "account_locked",
     /** Account deletion blocked due to ownership constraints */
     ACCOUNT_DELETE_ATTEMPT_BLOCKED = "account_delete_attempt_blocked",
 

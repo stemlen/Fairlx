@@ -10,6 +10,7 @@ import { getStorageProvider } from "@/lib/storage";
 import {
   getProjectDocumentsSchema,
   deleteProjectDocumentSchema,
+  downloadProjectDocumentSchema,
   updateProjectDocumentSchema,
   MAX_FILE_SIZE,
   MAX_TOTAL_PROJECT_SIZE,
@@ -17,6 +18,15 @@ import {
   formatFileSize,
 } from "../schemas";
 import { ProjectDocument, DocumentCategory } from "../types";
+import {
+  contentDisposition,
+  documentBody,
+  downloadFileName,
+  isInlineFileId,
+  isMarkdownDocument,
+} from "../lib/document-file";
+import { markdownToDocxBuffer, markdownToPdfBuffer, mimeForDownloadFormat } from "../lib/document-export";
+import { normalizeMarkdownSpacing } from "../lib/format-markdown";
 import aiRoute from "./ai-route";
 
 const app = new Hono()
@@ -77,11 +87,16 @@ const app = new Hono()
         const storageProvider = getStorageProvider(storage);
         const documentsWithUrls = await Promise.all(
           documents.documents.map(async (doc) => {
+            const { aiSummary: _body, ...rest } = doc;
+            void _body;
+            if (isInlineFileId(doc.fileId)) {
+              return { ...rest, url: null };
+            }
             try {
               const url = storageProvider.getPublicUrl(PROJECT_DOCS_BUCKET_ID, doc.fileId);
-              return { ...doc, url };
+              return { ...rest, url };
             } catch {
-              return { ...doc, url: null };
+              return { ...rest, url: null };
             }
           })
         );
@@ -371,10 +386,12 @@ const app = new Hono()
         // Delete old file
         const storageProvider = getStorageProvider(storage);
         try {
-          await storageProvider.deleteFile(PROJECT_DOCS_BUCKET_ID, document.fileId, {
-            workspaceId: document.workspaceId,
-            sizeBytes: document.size,
-          });
+          if (!isInlineFileId(document.fileId)) {
+            await storageProvider.deleteFile(PROJECT_DOCS_BUCKET_ID, document.fileId, {
+              workspaceId: document.workspaceId,
+              sizeBytes: document.size,
+            });
+          }
         } catch {
           // Ignore deletion errors
         }
@@ -455,11 +472,13 @@ const app = new Hono()
 
         // Delete file from storage (R2 or Appwrite)
         try {
-          const storageProvider = getStorageProvider(storage);
-          await storageProvider.deleteFile(PROJECT_DOCS_BUCKET_ID, document.fileId, {
-            workspaceId: document.workspaceId,
-            sizeBytes: document.size,
-          });
+          if (!isInlineFileId(document.fileId)) {
+            const storageProvider = getStorageProvider(storage);
+            await storageProvider.deleteFile(PROJECT_DOCS_BUCKET_ID, document.fileId, {
+              workspaceId: document.workspaceId,
+              sizeBytes: document.size,
+            });
+          }
         } catch {
           // Ignore deletion errors
         }
@@ -478,16 +497,15 @@ const app = new Hono()
   .get(
     "/:documentId/download",
     sessionMiddleware,
-    zValidator("query", deleteProjectDocumentSchema.pick({ workspaceId: true })),
+    zValidator("query", downloadProjectDocumentSchema),
     async (c) => {
       try {
         const user = c.get("user");
         const databases = c.get("databases");
         const storage = c.get("storage");
         const { documentId } = c.req.param();
-        const { workspaceId } = c.req.valid("query");
+        const { workspaceId, format } = c.req.valid("query");
 
-        // Verify workspace membership
         const member = await getMember({
           databases,
           workspaceId,
@@ -498,7 +516,6 @@ const app = new Hono()
           return c.json({ error: "Unauthorized" }, 401);
         }
 
-        // Get the document
         const document = await databases.getDocument<ProjectDocument>(
           DATABASE_ID,
           PROJECT_DOCS_ID,
@@ -509,23 +526,114 @@ const app = new Hono()
           return c.json({ error: "Document not found" }, 404);
         }
 
-        // Project permission check: verify user can view/download documents in this project
         const { resolveUserProjectAccess, hasProjectPermission, ProjectPermissionKey } = await import("@/lib/permissions/resolveUserProjectAccess");
         const accessForDownload = await resolveUserProjectAccess(databases, user.$id, document.projectId);
         if (!accessForDownload.hasAccess || !hasProjectPermission(accessForDownload, ProjectPermissionKey.VIEW_DOCS)) {
           return c.json({ error: "Forbidden: No permission to download documents in this project" }, 403);
         }
 
-        // Get file from storage (R2 or Appwrite)
-        const storageProvider = getStorageProvider(storage);
-        const file = await storageProvider.getFileView(PROJECT_DOCS_BUCKET_ID, document.fileId);
+        const title = document.title || document.name || "document";
+        const chosen = format || (isMarkdownDocument(document) ? "md" : undefined);
+        let markdown = documentBody(document);
+        let original: Uint8Array | null = null;
 
-        return new Response(new Uint8Array(file), {
-          headers: {
-            "Content-Disposition": `attachment; filename="${document.name}"`,
-            "Content-Type": document.mimeType || "application/octet-stream",
-          },
-        });
+        if (!isInlineFileId(document.fileId)) {
+          try {
+            const storageProvider = getStorageProvider(storage);
+            const file = await storageProvider.getFileView(PROJECT_DOCS_BUCKET_ID, document.fileId);
+            original = new Uint8Array(file);
+            if (!markdown && isMarkdownDocument(document)) {
+              markdown = Buffer.from(file).toString("utf8");
+            }
+          } catch (error) {
+            if (!markdown) throw error;
+          }
+        }
+
+        if (markdown && isMarkdownDocument(document)) {
+          markdown = normalizeMarkdownSpacing(markdown);
+        }
+
+        if (chosen === "md") {
+          if (!markdown) {
+            return c.json({ error: "This file cannot be downloaded as Markdown." }, 400);
+          }
+          const fileName = downloadFileName(title, "md");
+          return new Response(markdown, {
+            headers: {
+              "Content-Disposition": contentDisposition(fileName),
+              "Content-Type": mimeForDownloadFormat("md"),
+            },
+          });
+        }
+
+        if (chosen === "pdf") {
+          const mime = String(document.mimeType || "");
+          if (original && mime === "application/pdf") {
+            return new Response(original, {
+              headers: {
+                "Content-Disposition": contentDisposition(downloadFileName(title, "pdf")),
+                "Content-Type": "application/pdf",
+              },
+            });
+          }
+          if (!markdown) {
+            return c.json({ error: "This file cannot be converted to PDF." }, 400);
+          }
+          const bytes = markdownToPdfBuffer(title, markdown);
+          return new Response(bytes, {
+            headers: {
+              "Content-Disposition": contentDisposition(downloadFileName(title, "pdf")),
+              "Content-Type": mimeForDownloadFormat("pdf"),
+            },
+          });
+        }
+
+        if (chosen === "docx") {
+          const mime = String(document.mimeType || "");
+          if (
+            original &&
+            (mime.includes("wordprocessingml") || mime === "application/msword")
+          ) {
+            return new Response(original, {
+              headers: {
+                "Content-Disposition": contentDisposition(downloadFileName(title, "docx")),
+                "Content-Type": mimeForDownloadFormat("docx"),
+              },
+            });
+          }
+          if (!markdown) {
+            return c.json({ error: "This file cannot be converted to a Word document." }, 400);
+          }
+          const buffer = await markdownToDocxBuffer(title, markdown);
+          return new Response(new Uint8Array(buffer), {
+            headers: {
+              "Content-Disposition": contentDisposition(downloadFileName(title, "docx")),
+              "Content-Type": mimeForDownloadFormat("docx"),
+            },
+          });
+        }
+
+        if (original) {
+          return new Response(original, {
+            headers: {
+              "Content-Disposition": contentDisposition(document.name || downloadFileName(title, "md")),
+              "Content-Type": document.mimeType || "application/octet-stream",
+            },
+          });
+        }
+
+        if (markdown) {
+          const fileName = downloadFileName(title, "md");
+          return new Response(markdown, {
+            headers: {
+              "Content-Disposition": contentDisposition(fileName),
+              "Content-Type": mimeForDownloadFormat("md"),
+            },
+          });
+        }
+
+        return c.json({ error: "Document file is missing." }, 404);
       } catch (error) {
         console.error("[ProjectDocs] Download failed:", error);
         return c.json({ error: "Failed to download document" }, 500);
@@ -574,9 +682,15 @@ const app = new Hono()
           return c.json({ error: "Forbidden: No permission to view documents in this project" }, 403);
         }
 
-        // Get URL
-        const storageProvider = getStorageProvider(storage);
-        const url = storageProvider.getPublicUrl(PROJECT_DOCS_BUCKET_ID, document.fileId);
+        let url: string | null = null;
+        if (!isInlineFileId(document.fileId)) {
+          try {
+            const storageProvider = getStorageProvider(storage);
+            url = storageProvider.getPublicUrl(PROJECT_DOCS_BUCKET_ID, document.fileId);
+          } catch {
+            url = null;
+          }
+        }
 
         // Get uploader info
         let uploader = null;

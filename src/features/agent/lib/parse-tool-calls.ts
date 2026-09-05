@@ -7,6 +7,7 @@ export const HARNESS_TO_MCP: Record<string, string> = {
   list_workspaces: "fairlx_workspace_list",
   list_projects: "fairlx_project_list",
   list_work_items: "fairlx_work_item_list",
+  create_project: "fairlx_project_create",
 };
 
 function preferMcp(resolved: string, mcpToolNames: string[]): string {
@@ -78,6 +79,19 @@ const ALIASES: Record<string, string> = {
   updateorganization: "fairlx_organization_update",
   organization_update: "fairlx_organization_update",
   renameorganization: "fairlx_organization_update",
+  createdepartment: "fairlx_department_create",
+  create_department: "fairlx_department_create",
+  org_department_create: "fairlx_department_create",
+  department_create: "fairlx_department_create",
+  listdepartments: "fairlx_department_list",
+  list_departments: "fairlx_department_list",
+  department_list: "fairlx_department_list",
+  addpermission: "fairlx_department_permission_add",
+  add_permission: "fairlx_department_permission_add",
+  create_permission: "fairlx_department_permission_add",
+  assign_permission: "fairlx_department_permission_add",
+  permission_grant: "fairlx_department_permission_add",
+  department_permission_add: "fairlx_department_permission_add",
   getworkspaceinvite: "fairlx_workspace_invite_get",
   workspace_invite_get: "fairlx_workspace_invite_get",
   workspaceinvite: "fairlx_workspace_invite_get",
@@ -98,6 +112,13 @@ const ALIASES: Record<string, string> = {
   createproject: "create_project",
   create_project: "create_project",
   project_create: "fairlx_project_create",
+  usagesummary: "fairlx_usage_summary",
+  usage_summary: "fairlx_usage_summary",
+  orgbill: "fairlx_usage_summary",
+  org_bill: "fairlx_usage_summary",
+  projectteamslist: "fairlx_project_team_list",
+  project_teams_list: "fairlx_project_team_list",
+  fairlx_project_teams_list: "fairlx_project_team_list",
 };
 
 export function camelToSnake(value: string): string {
@@ -197,7 +218,7 @@ export function normalizeAgentToolCall(call: AgentToolCall, mcpToolNames: string
       arguments: JSON.stringify({ server: String(args.server || "fairlx"), tool, arguments: inner }),
     };
   }
-  return toCall(call.name, args, mcpToolNames, call.id);
+  return { ...toCall(call.name, args, mcpToolNames, call.id), ...(call.itemId ? { itemId: call.itemId } : {}) };
 }
 
 function toCall(

@@ -1,3 +1,5 @@
+import { compactLlmUsagePayload } from "./run-usage";
+
 export function parseJson<T>(raw: string | undefined | null, fallback: T): T {
   if (!raw) return fallback;
   try {
@@ -250,7 +252,10 @@ function compactArrayItems(items: unknown[]): unknown[] {
     if (typeof next.detail === "string" && next.detail.length > DETAIL_MAX) {
       next.detail = truncateString(next.detail, DETAIL_MAX);
     }
-    if (next.type !== "confirmation" && next.type !== "context_meter" && next.payload !== undefined) {
+    if (next.type === "llm_usage") {
+      const compact = compactLlmUsagePayload(next.payload);
+      if (compact) next.payload = compact;
+    } else if (next.type !== "confirmation" && next.type !== "context_meter" && next.payload !== undefined) {
       try {
         if (JSON.stringify(next.payload).length > EVENT_PAYLOAD_MAX) next.payload = undefined;
       } catch {
@@ -306,10 +311,46 @@ function shrinkPinned(pinned: unknown[], max: number): unknown[] {
   return next;
 }
 
+function isEventItem(item: unknown): boolean {
+  return isRecord(item) && typeof item.type === "string" && item.role == null;
+}
+
+function isPinnedEvent(item: unknown): boolean {
+  if (!isRecord(item)) return false;
+  return item.type === "confirmation" || item.type === "confirmation_resolved" || item.type === "error" || item.type === "context_meter" || item.type === "llm_usage";
+}
+
+/** Drop bulky payloads from the activity trail so thought titles survive the Appwrite cap. */
+function slimEventItems(items: unknown[]): unknown[] {
+  return items.map((item) => {
+    if (!isEventItem(item) || !isRecord(item) || isPinnedEvent(item)) return item;
+    const next: Record<string, unknown> = { ...item };
+    if (next.type === "llm_usage") {
+      const compact = compactLlmUsagePayload(next.payload);
+      if (compact) next.payload = compact;
+    } else if (next.payload !== undefined) {
+      delete next.payload;
+    }
+    if (typeof next.detail === "string" && next.detail.length > 160) {
+      next.detail = truncateString(next.detail, 160);
+    }
+    return next;
+  });
+}
+
+function dropOldestEvents(items: unknown[], max: number): unknown[] {
+  const next = [...items];
+  while (JSON.stringify(next).length > max && next.length > 1) {
+    const index = next.findIndex((item) => !isPinnedEvent(item));
+    if (index === -1) break;
+    next.splice(index, 1);
+  }
+  return next;
+}
+
 function dropDispensable(items: unknown[], max: number): unknown[] {
   const next = [...items];
   const predicates: Array<(item: unknown) => boolean> = [
-    (item) => isRecord(item) && item.type === "thought",
     (item) => isRecord(item) && item.role === "tool",
     (item) =>
       isRecord(item) &&
@@ -320,9 +361,10 @@ function dropDispensable(items: unknown[], max: number): unknown[] {
       isRecord(item) &&
       typeof item.type === "string" &&
       item.role == null &&
-      item.type !== "confirmation" &&
-      item.type !== "confirmation_resolved" &&
+      !isPinnedEvent(item) &&
+      item.type !== "thought" &&
       item.type !== "context_meter",
+    (item) => isRecord(item) && item.type === "thought",
   ];
   for (const pred of predicates) {
     while (JSON.stringify(next).length > max && next.length > 1) {
@@ -388,7 +430,13 @@ export function stringifyBounded(value: unknown, max = 16384): string {
 
     const pinnedLen = pinned.length ? JSON.stringify(pinned).length : 0;
     const restMax = Math.max(2, max - pinnedLen);
-    const pruned = dropDispensable(compacted, restMax);
+    const eventTrail = compacted.some(isEventItem);
+    const slimmed = eventTrail ? slimEventItems(compacted) : compacted;
+    if (eventTrail) {
+      json = JSON.stringify(attach(slimmed));
+      if (json.length <= max) return json;
+    }
+    const pruned = eventTrail ? dropOldestEvents(slimmed, restMax) : dropDispensable(slimmed, restMax);
     json = JSON.stringify(attach(pruned));
     if (json.length <= max) return json;
 

@@ -126,9 +126,17 @@ export function UsageKPICards({
             <KPICard
                 title="Wallet Balance"
                 value={walletBalance !== undefined ? formatCurrency(walletBalance) : formatCurrency(0)}
-                subtitle="Available for compute (billed in USD)"
+                subtitle={
+                    walletBalance !== undefined && walletBalance < 0
+                        ? "Negative — account locks at -$20.00"
+                        : "Available for compute (billed in USD)"
+                }
                 icon={<DollarSign className="h-5 w-5" />}
-                className="border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-500/5 to-indigo-500/5"
+                className={
+                    walletBalance !== undefined && walletBalance < 0
+                        ? "border-l-4 border-l-red-600 bg-gradient-to-br from-red-500/10 to-amber-500/5"
+                        : "border-l-4 border-l-blue-600 bg-gradient-to-br from-blue-500/5 to-indigo-500/5"
+                }
             />
             <KPICard
                 title="Traffic Used"

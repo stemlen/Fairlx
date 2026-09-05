@@ -36,6 +36,10 @@ describe("capability inference", () => {
     expect(inferCapabilities("Send a mail to ada@x.com about WEB-12")).toContain("email.send");
   });
 
+  it("does not require GitHub for planning documentation", () => {
+    expect(inferCapabilities("create project documentation for this app")).not.toContain("code.read");
+  });
+
   it("treats linked GitHub repos as code.read", () => {
     const ctx = context();
     ctx.githubRepos = [{ id: "r1", owner: "acme", repositoryName: "app", branch: "main" }];
@@ -65,6 +69,10 @@ describe("github helpers", () => {
   it("maps missing-token errors to code.write", () => {
     expect(githubCapabilityGap({ error: "GitHub token is missing or cannot push." })).toBe("code.write");
     expect(githubCapabilityGap({ html_url: "https://github.com/x" })).toBeUndefined();
+    expect(githubCapabilityGap({ error: "No GitHub repository is linked.", skipped: true })).toBeUndefined();
+    expect(githubCapabilityGap({ error: "No GitHub repository is linked.", skipped: true, capability: "code.write" })).toBe(
+      "code.write",
+    );
   });
 
   it("parses PR file batches", () => {

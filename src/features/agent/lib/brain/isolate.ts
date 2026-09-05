@@ -11,6 +11,13 @@ export function filterToolsForSpecialist<T extends SelectableTool>(
   const filtered = tools.filter((tool) => {
     const name = tool.function.name;
     if (name === "delegate_agent" || name === "request_capability") return false;
+    if (
+      specialist === "researcher" &&
+      name.startsWith("fairlx_") &&
+      /_(create|update|delete|add|set|start|complete|remove)$/.test(name)
+    ) {
+      return false;
+    }
     if (names.has(name)) return true;
     return prefixes.some((prefix) => name.startsWith(prefix));
   });

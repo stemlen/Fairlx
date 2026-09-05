@@ -1,5 +1,8 @@
 import {
+  FOUNDRY_GPT_LUNA_MODEL_ID,
+  LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID,
   PLATFORM_DEEPSEEK_PROVIDER_ID,
+  PLATFORM_FOUNDRY_PROVIDER_ID,
   PLATFORM_XAI_PROVIDER_ID,
   getPlatformDefaultModelId,
   getPlatformModels,
@@ -16,12 +19,13 @@ import {
   overlayPlatformModel,
   overlayPlatformProvider,
   platformDeepseekHasKey,
+  platformFoundryHasKey,
   platformGrokHasKey,
 } from "./platform-credentials";
 import { last4FromEncrypted, maskEncryptedSecret } from "./secrets";
 
 export { defaultMcpConfig, enabledModels, selectedModelLabel, resolvedModelDisplayName } from "./client-defaults";
-export { platformDeepseekHasKey, platformGrokHasKey, platformXaiHasKey } from "./platform-credentials";
+export { platformDeepseekHasKey, platformFoundryHasKey, platformGrokHasKey, platformXaiHasKey } from "./platform-credentials";
 export { getPlatformDefaultModelId, getPlatformModels, getPlatformProviders, isPlatformGrokEnabled } from "../constants";
 
 export function defaultAiStoredConfig(): AgentAiConfigStored {
@@ -76,10 +80,14 @@ export function mergePlatformAiConfig(config: AgentAiConfigStored): AgentAiConfi
   }
 
   const defaultModelId = getPlatformDefaultModelId();
-  const selectedModelId =
-    !config.selectedModelId || !models.some((m) => m.id === config.selectedModelId)
-      ? defaultModelId
+  const requestedId =
+    config.selectedModelId === LEGACY_FOUNDRY_DEEPSEEK_MODEL_ID
+      ? FOUNDRY_GPT_LUNA_MODEL_ID
       : config.selectedModelId;
+  const selectedModelId =
+    !requestedId || !models.some((m) => m.id === requestedId)
+      ? defaultModelId
+      : requestedId;
 
   return {
     ...config,
@@ -93,6 +101,7 @@ export function mergePlatformAiConfig(config: AgentAiConfigStored): AgentAiConfi
 function providerApiKeySource(provider: AgentProviderStored): AgentApiKeySource {
   if (provider.apiKeyEncrypted) return "user";
   if (provider.id === PLATFORM_XAI_PROVIDER_ID && platformGrokHasKey()) return "platform";
+  if (provider.id === PLATFORM_FOUNDRY_PROVIDER_ID && platformFoundryHasKey()) return "platform";
   if (provider.id === PLATFORM_DEEPSEEK_PROVIDER_ID && platformDeepseekHasKey()) return "platform";
   return "none";
 }

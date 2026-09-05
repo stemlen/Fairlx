@@ -6,6 +6,8 @@ import { extractAttachedFiles, subjectsFromFiles, subjectsToc } from "./attachme
 import { matchingAutomations, rankKnowledge } from "./search";
 import { isPersonalSessionMode, SESSION_MODE_INSTRUCTIONS } from "./session-context";
 import { firstName } from "./agent-ui";
+import { PROJECT_DOC_MARKDOWN_GUIDE, documentationPackInstructions } from "@fairlx/mcp-server/markdown";
+import { formatProjectGithubLine, hasProjectGithubRepo } from "./github-scope";
 import {
   buildTrainingInterviewPrompt,
   formatTrainingSnapshot,
@@ -89,6 +91,7 @@ export function buildSystemPrompt(params: {
             : ""
         }`
       : "No project selected.",
+    formatProjectGithubLine(context, project?.id),
   ];
   if (personal) lines.push(SESSION_MODE_INSTRUCTIONS.personal);
   if (personal && params.personalPrompt?.trim()) {
@@ -111,10 +114,25 @@ export function buildSystemPrompt(params: {
     lines.push("All-access mode: do not wait for Accept. Keep working until the Task is finished or the user Stops.");
   } else {
     lines.push(
-      "Staged mode: create/update work items run immediately. Mail, GitHub writes/PRs, deletes, invites, and project create wait for Accept.",
+      "Staged mode: create/update work items run immediately. Mail, GitHub writes/PRs, deletes, invites, project create, and project documents wait for Accept.",
     );
   }
-  lines.push("", "Rules:", ...SYSTEM_PROMPT_RULE_LINES);
+  lines.push(
+    "",
+    "Rules:",
+    ...SYSTEM_PROMPT_RULE_LINES,
+    "- Independent specialists MUST launch together: emit every delegate_agent call in the same assistant step (not one per turn). The runtime runs them in parallel (up to 6 at once). Do not wait for one specialist to finish before launching others that do not depend on its result.",
+    "- fairlx_sprint_list at most once per project. Omit status — do not call it for ACTIVE, then PLANNED, then ALL. status ALL is ignored. Skip listing entirely when the task is to unassign or assign a sprint.",
+    "- To unassign every sprint item, call fairlx_work_item_bulk_update once with clearAssignees: true — do not pass assignPercent 0 with a person, and do not list first. To put one person on every item in a named sprint, call it once with sprintId as \"Sprint 1\" (name or number) and assigneeIds: [\"Name\"]; that replaces assignees.",
+    "- Documentation is not parallel specialist work. Do not emit one delegate_agent per PRD, FRD, BRD, or other document type. A researcher may search the web first; then one writer saves at most two researched documents.",
+    "- For billing, usage, spend, wallet balance, invoices, or cost by model (Grok, Luna, DeepSeek), call fairlx_usage_summary. Pass scope=organization (or organizationId) for the org bill; omit ids for this workspace. period is YYYY-MM. Do not search_harness for billing — spend lives in the usage ledger, not local knowledge.",
+    "- Org departments own org permissions (billing, members, settings). List them with fairlx_department_list. Create with fairlx_department_create — pass departments: [{ name, permissions }] using keys like org.members.view and org.billing.manage. Add keys to an existing department with fairlx_department_permission_add. Do not invent org_department_create, create_role, or permission_grant.",
+    hasProjectGithubRepo(context, project?.id)
+      ? "- Edit code through github_read_file, github_write_file, and github_open_pr on linked repos. Pass files[] on github_open_pr for multi-file PRs. Never claim you ran git on the Fairlx host."
+      : "- No GitHub repo is linked. Do not call github_write_file or github_open_pr. If the user asked to edit code, tell them to add a repository (Add one) — do not block planning or documentation on that.",
+    `- ${documentationPackInstructions(hasProjectGithubRepo(context, project?.id))} ${PROJECT_DOC_MARKDOWN_GUIDE}`,
+    "- Be concise in chat replies. Project documents are the opposite: long, cited research studies. Never save a short outline.",
+  );
 
   if (knowledge.length) {
     lines.push("", "Notes:");
@@ -139,7 +157,9 @@ export function buildSystemPrompt(params: {
       lines.push(`- ${file.name} (${file.body.length} chars)`);
     }
     if (subjects.length) {
-      lines.push("Subjects — call delegate_agent once per subject with that heading as subject:");
+      lines.push(
+        "Subjects — when creating work items, call delegate_agent once per subject with that heading as subject. When writing project documentation, ignore this split: research on the web, then save at most two long cited documents:",
+      );
       lines.push(subjectsToc(subjects));
     }
   }

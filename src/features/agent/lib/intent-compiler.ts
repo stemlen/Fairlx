@@ -3,7 +3,8 @@ export type FairlxListIntent = {
   args: Record<string, unknown>;
 };
 
-const WRITE_RE = /\b(create|update|delete|assign|unassign|move|close|start|complete|rename)\b/;
+const WRITE_RE =
+  /\b(create|update|delete|assign|unassign|remove|move|close|start|complete|rename)\b/;
 const LIST_HINT_RE =
   /\b(list|show|tell|what|which|all|find|get|how many|who(?:'s| is)?)\b/;
 const WORK_RE =
@@ -46,9 +47,7 @@ export function compileFairlxListIntent(
   const q = text.toLowerCase().replace(/\s+/g, " ").trim();
   if (!q) return null;
   if (/\bplan\b/.test(q) && !/\b(list|show|how many)\b/.test(q)) return null;
-  if (WRITE_RE.test(q) && !UNASSIGNED_RE.test(q) && !LIST_HINT_RE.test(q) && !PROJECT_BACKLOG_RE.test(q)) {
-    return null;
-  }
+  if (WRITE_RE.test(q)) return null;
   if (!WORK_RE.test(q)) return null;
   if (!LIST_HINT_RE.test(q) && !UNASSIGNED_RE.test(q) && !PROJECT_BACKLOG_RE.test(q) && !/\bmy tasks\b/.test(q)) {
     return null;

@@ -8,7 +8,21 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `8c49ee0` | Merge stemlen/main into fork main to sync upstream before contribution. | ANCIENTINSANE |
+| 2026-09-06 | `c719487` | feat: researched project docs, agent context fitting, and usage billing | ANCIENTINSANE |
+| 2026-09-05 | `8b787ea` | chore: bump version to 0.2.102 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `66e7390` | Merge pull request #305 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-05 | `f06ca01` | chore: bump version to 0.2.101 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `c81e03c` | Merge pull request #304 from Happyesss/contrib/context-meter | Shashank Kumar Rathour |
+| 2026-09-05 | `3de0bd4` | chore: bump version to 0.2.101 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `7bc902a` | Merge stemlen/main into fork and resolve prompt rule conflict. | Happyesss |
+| 2026-09-05 | `d09e948` | chore: bump version to 0.2.100 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `3485018` | feat: introduce context meter to track and display agent token usage and budgeting | Happyesss |
+| 2026-09-05 | `2108acc` | chore: bump version to 0.2.100 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `6259f4f` | Merge pull request #303 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync | Surendra Codes |
 | 2026-09-05 | `76b6b22` | checkpoint before checking out main | ANCIENTINSANE |
+| 2026-09-05 | `6f733c8` | chore: bump version to 0.2.99 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `77834c5` | Merge pull request #302 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync | Surendra Codes |
 | 2026-09-05 | `4d69739` | Merge stemlen/main into contrib branch for cross-repo contribution | ANCIENTINSANE |
 | 2026-09-05 | `e0a995a` | Ship leftover org invite, agent board, and docs-hook work. | ANCIENTINSANE |
 | 2026-09-05 | `7a39a96` | Raise agent model timeouts and pass attached specs to subject sub-agents. | ANCIENTINSANE |
@@ -89,20 +103,5 @@ Older session notes live in [docs/changelog-history.md](docs/changelog-history.m
 | 2026-08-28 | `16d13e5` | Merge pull request #287 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-08-28 | `3a527cd` | Merge branch 'stemlen:main' into main | Surendra Codes |
 | 2026-08-28 | `34fb666` | fix: load organization audit logs on /organization | ANCIENTINSANE |
-| 2026-08-28 | `7ca56a1` | chore: bump version to 0.2.68 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `7881912` | Merge pull request #286 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-08-28 | `cf0bec8` | chore: bump version to 0.2.67 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `e535814` | refactor: remove codebase QA feature and associated GitHub integration modules | Happyesss |
-| 2026-08-28 | `28a345f` | fix: resolve Invoices View All 404 for organization billing | ANCIENTINSANE |
-| 2026-08-28 | `cded1dd` | chore: bump version to 0.2.66 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `47f5602` | Merge pull request #285 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-28 | `975cf12` | fix: implement Timeline PNG and PDF export via canvas Gantt renderer | ANCIENTINSANE |
-| 2026-08-28 | `942694e` | fix: accept Appwrite Document in department permission parser | ANCIENTINSANE |
-| 2026-08-28 | `64d9c95` | fix: align department member/permission writes with live Appwrite schema | ANCIENTINSANE |
-| 2026-08-28 | `5c0dd5c` | fix: restore core pages for members and return JSON on department create errors | ANCIENTINSANE |
-| 2026-08-04 | `8dae912` | fix: resolve AZURE_HOST resolution by fallback to secrets.AZURE_HOST | ANCIENTINSANE |
-| 2026-08-04 | `21c837a` | fix: correct deploy user/path, add standalone build support, fail-fast health check | ANCIENTINSANE |
-| 2026-08-04 | `18fbb45` | ci: update deployment workflow name to Azure Cloud VM | ANCIENTINSANE |
-| 2026-07-27 | `354ca26` | chore: bump version to 0.2.65 [skip ci] | github-actions[bot] |
 
-Last generated: 2026-09-05T10:47:21.355Z
+Last generated: 2026-09-05T18:55:34.414Z

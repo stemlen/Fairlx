@@ -588,7 +588,7 @@ Provide a comprehensive, helpful answer:`;
 
         // Calculate model-aware cost and log with full token data
         const pricing = await getAIModelPricing(databases, aiResponse.model);
-        const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens);
+        const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens, aiResponse.tokenUsage.cachedTokens);
 
         logAIUsage({
           databases,
@@ -597,6 +597,7 @@ Provide a comprehensive, helpful answer:`;
           model: aiResponse.model,
           promptTokens: aiResponse.tokenUsage.promptTokens,
           completionTokens: aiResponse.tokenUsage.completionTokens,
+          cachedTokens: aiResponse.tokenUsage.cachedTokens,
           totalTokens: aiResponse.tokenUsage.totalTokens,
           costUSD,
           units: aiResponse.tokenUsage.totalTokens,
@@ -815,7 +816,7 @@ IMPORTANT:
 
         // Calculate model-aware cost and log with full token data
         const createPricing = await getAIModelPricing(databases, aiCreateResponse.model);
-        const createCostUSD = calculateAICallCostUSD(createPricing, aiCreateResponse.tokenUsage.promptTokens, aiCreateResponse.tokenUsage.completionTokens);
+        const createCostUSD = calculateAICallCostUSD(createPricing, aiCreateResponse.tokenUsage.promptTokens, aiCreateResponse.tokenUsage.completionTokens, aiCreateResponse.tokenUsage.cachedTokens);
 
         logAIUsage({
           databases,
@@ -824,6 +825,7 @@ IMPORTANT:
           model: aiCreateResponse.model,
           promptTokens: aiCreateResponse.tokenUsage.promptTokens,
           completionTokens: aiCreateResponse.tokenUsage.completionTokens,
+          cachedTokens: aiCreateResponse.tokenUsage.cachedTokens,
           totalTokens: aiCreateResponse.tokenUsage.totalTokens,
           costUSD: createCostUSD,
           units: aiCreateResponse.tokenUsage.totalTokens,
@@ -1148,7 +1150,7 @@ IMPORTANT:
 
         // Calculate model-aware cost and log with full token data
         const updatePricing = await getAIModelPricing(databases, aiUpdateResponse.model);
-        const updateCostUSD = calculateAICallCostUSD(updatePricing, aiUpdateResponse.tokenUsage.promptTokens, aiUpdateResponse.tokenUsage.completionTokens);
+        const updateCostUSD = calculateAICallCostUSD(updatePricing, aiUpdateResponse.tokenUsage.promptTokens, aiUpdateResponse.tokenUsage.completionTokens, aiUpdateResponse.tokenUsage.cachedTokens);
 
         logAIUsage({
           databases,
@@ -1157,6 +1159,7 @@ IMPORTANT:
           model: aiUpdateResponse.model,
           promptTokens: aiUpdateResponse.tokenUsage.promptTokens,
           completionTokens: aiUpdateResponse.tokenUsage.completionTokens,
+          cachedTokens: aiUpdateResponse.tokenUsage.cachedTokens,
           totalTokens: aiUpdateResponse.tokenUsage.totalTokens,
           costUSD: updateCostUSD,
           units: aiUpdateResponse.tokenUsage.totalTokens,

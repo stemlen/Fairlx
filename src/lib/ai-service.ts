@@ -21,6 +21,7 @@ interface ChatMessage {
 export interface AITokenUsage {
   promptTokens: number;
   completionTokens: number;
+  cachedTokens: number;
   totalTokens: number;
 }
 
@@ -204,6 +205,7 @@ export class AIService {
       const tokenUsage: AITokenUsage = {
         promptTokens: usageMetadata?.promptTokenCount ?? 0,
         completionTokens: usageMetadata?.candidatesTokenCount ?? 0,
+        cachedTokens: usageMetadata?.cachedContentTokenCount ?? 0,
         totalTokens: usageMetadata?.totalTokenCount ?? 0,
       };
 

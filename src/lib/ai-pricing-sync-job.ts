@@ -2,7 +2,7 @@ import "server-only";
 
 import { Databases, ID, Query } from "node-appwrite";
 import { DATABASE_ID, AI_MODEL_PRICING_ID } from "@/config";
-import { invalidatePricingCache, type AIModelPricing } from "./ai-model-pricing";
+import { invalidatePricingCache, listFallbackPricing, type AIModelPricing } from "./ai-model-pricing";
 
 // ============================================================================
 // TYPES
@@ -28,8 +28,11 @@ interface PricingSyncResult {
 
 interface ParsedPricing {
     modelId: string;
+    displayName?: string;
     inputPricePerMillionTokens: number;
     outputPricePerMillionTokens: number;
+    cachedInputPricePerMillionTokens?: number;
+    source?: "google_scraper" | "azure_foundry";
 }
 
 // ============================================================================
@@ -86,6 +89,158 @@ function extractPrice(context: string, type: "input" | "output"): number | null 
 // MODELS LIST API
 // ============================================================================
 
+async function fetchAzureFoundryGrokPricing(): Promise<ParsedPricing[]> {
+    const results: ParsedPricing[] = [];
+    const urls = [
+        "https://azure.microsoft.com/nb-no/pricing/details/ai-foundry-models/grok/",
+        "https://azure.microsoft.com/en-us/pricing/details/ai-foundry-models/grok/",
+    ];
+    for (const url of urls) {
+        try {
+            const response = await fetch(url, {
+                headers: { "User-Agent": "Fairlx-Billing-Sync/1.0", Accept: "text/html" },
+                signal: AbortSignal.timeout(15_000),
+            });
+            if (!response.ok) continue;
+            const html = await response.text();
+            const parsed = extractAzureGrokPricing(html);
+            if (parsed.length) {
+                console.log(`[AIPricingSync] Parsed ${parsed.length} Grok prices from ${url}`);
+                return parsed;
+            }
+        } catch (error) {
+            console.warn("[AIPricingSync] Azure Foundry Grok pricing fetch failed:", error);
+        }
+    }
+    return results;
+}
+
+function normalizeGrokModelId(label: string): string | null {
+    const compact = label.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!compact.includes("grok")) return null;
+    if (compact.includes("4.6")) return "grok-4.6";
+    if (compact.includes("4.3")) return "grok-4.3";
+    if (compact.includes("4.2")) return "grok-4.2";
+    if (compact.includes("4.1") && compact.includes("fast")) return "grok-4.1-fast";
+    if (compact.includes("code") && compact.includes("fast")) return "grok-code-fast-1";
+    if (compact.includes("4 fast") || compact.includes("4-fast")) return "grok-4-fast";
+    if (/\bgrok[- ]?4\b/.test(compact) && !compact.includes("fast")) return "grok-4";
+    if (compact.includes("3 mini")) return "grok-3-mini";
+    if (compact.includes("grok-3") || compact.includes("grok 3")) return "grok-3";
+    return null;
+}
+
+function extractAzureGrokPricing(html: string): ParsedPricing[] {
+    const results: ParsedPricing[] = [];
+    const rowRegex = /<(?:tr|td)[^>]*>[\s\S]{0,80}(Grok[^<]{0,80})[\s\S]{0,400}?\$([0-9]+(?:[.,][0-9]+)?)[\s\S]{0,200}?\$([0-9]+(?:[.,][0-9]+)?)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = rowRegex.exec(html)) !== null) {
+        const modelId = normalizeGrokModelId(match[1]);
+        if (!modelId) continue;
+        const inputRaw = parseFloat(match[2].replace(",", "."));
+        const outputRaw = parseFloat(match[3].replace(",", "."));
+        if (!Number.isFinite(inputRaw) || !Number.isFinite(outputRaw)) continue;
+        // Azure sometimes lists per 1,000 tokens (e.g. $0.003) and sometimes per 1M.
+        const perMillion = inputRaw < 0.05;
+        const input = perMillion ? inputRaw * 1000 : inputRaw;
+        const output = perMillion ? outputRaw * 1000 : outputRaw;
+        results.push({
+            modelId,
+            displayName: match[1].replace(/\s+/g, " ").trim(),
+            inputPricePerMillionTokens: input,
+            outputPricePerMillionTokens: output,
+            cachedInputPricePerMillionTokens: Number((input * 0.25).toFixed(4)),
+            source: "azure_foundry",
+        });
+    }
+    return results;
+}
+
+async function upsertFoundryCatalog(
+    databases: Databases,
+    existingDocs: Map<string, { $id: string; pricingSource: string }>,
+    livePrices: ParsedPricing[],
+    result: PricingSyncResult,
+): Promise<void> {
+    const liveById = new Map(livePrices.map((p) => [p.modelId, p]));
+    const catalog = listFallbackPricing().filter((model) =>
+        model.pricingSource === "azure_foundry" || model.modelId.toLowerCase().startsWith("grok") || model.modelId.toLowerCase().includes("deepseek"),
+    );
+
+    const toUpsert = new Map<string, AIModelPricing>();
+    for (const model of catalog) {
+        toUpsert.set(model.modelId, model);
+    }
+    for (const live of livePrices) {
+        const current = toUpsert.get(live.modelId);
+        toUpsert.set(live.modelId, {
+            modelId: live.modelId,
+            displayName: live.displayName || current?.displayName || live.modelId,
+            inputPricePerMillionTokens: live.inputPricePerMillionTokens,
+            outputPricePerMillionTokens: live.outputPricePerMillionTokens,
+            cachedInputPricePerMillionTokens:
+                live.cachedInputPricePerMillionTokens ?? current?.cachedInputPricePerMillionTokens,
+            isActive: true,
+            tier: current?.tier ?? inferTier(live.modelId),
+            pricingSource: "azure_foundry",
+            lastSyncedAt: new Date().toISOString(),
+        });
+    }
+
+    // Always refresh grok-4.6 from live Foundry if the scraper missed it.
+    if (!liveById.has("grok-4.6") && toUpsert.has("grok-4.6")) {
+        toUpsert.set("grok-4.6", {
+            ...toUpsert.get("grok-4.6")!,
+            lastSyncedAt: new Date().toISOString(),
+            pricingSource: "azure_foundry",
+        });
+    }
+
+    for (const model of toUpsert.values()) {
+        const existing = existingDocs.get(model.modelId);
+        if (existing?.pricingSource === "admin_override") {
+            result.modelsSkipped++;
+            continue;
+        }
+        const docData: Record<string, unknown> = {
+            modelId: model.modelId,
+            displayName: model.displayName,
+            isActive: true,
+            tier: model.tier,
+            inputPricePerMillionTokens: model.inputPricePerMillionTokens,
+            outputPricePerMillionTokens: model.outputPricePerMillionTokens,
+            cachedInputPricePerMillionTokens: model.cachedInputPricePerMillionTokens ?? null,
+            pricingSource: "azure_foundry",
+            lastSyncedAt: new Date().toISOString(),
+        };
+        try {
+            if (existing) {
+                await databases.updateDocument(DATABASE_ID, AI_MODEL_PRICING_ID, existing.$id, docData);
+                result.modelsUpdated++;
+            } else {
+                await databases.createDocument(DATABASE_ID, AI_MODEL_PRICING_ID, ID.unique(), docData);
+                result.modelsCreated++;
+                existingDocs.set(model.modelId, { $id: "new", pricingSource: "azure_foundry" });
+            }
+            result.pricingUpdated++;
+        } catch (error) {
+            try {
+                const { cachedInputPricePerMillionTokens: _cached, ...withoutCache } = docData;
+                if (existing) {
+                    await databases.updateDocument(DATABASE_ID, AI_MODEL_PRICING_ID, existing.$id, withoutCache);
+                    result.modelsUpdated++;
+                } else {
+                    await databases.createDocument(DATABASE_ID, AI_MODEL_PRICING_ID, ID.unique(), withoutCache);
+                    result.modelsCreated++;
+                }
+                result.pricingUpdated++;
+            } catch (retryError) {
+                result.errors.push(`Failed Foundry "${model.modelId}": ${retryError instanceof Error ? retryError.message : String(retryError)}`);
+            }
+        }
+    }
+}
+
 async function fetchGoogleModels(apiKey: string): Promise<GoogleModelInfo[]> {
     const allModels: GoogleModelInfo[] = [];
     let pageToken: string | undefined;
@@ -114,24 +269,24 @@ async function fetchGoogleModels(apiKey: string): Promise<GoogleModelInfo[]> {
 // ============================================================================
 
 /**
- * Sync AI model pricing from Google sources.
- * 1. Fetch pricing from Google pricing page (HTML scrape)
- * 2. Fetch all models from Google models.list API  
- * 3. Merge data and update/create DB records
+ * Sync AI model pricing from Google + Azure Foundry.
+ * 1. Fetch Google Gemini pricing + models.list (optional if no API key)
+ * 2. Fetch Azure Foundry Grok live list prices
+ * 3. Upsert Foundry catalog (Grok 4.6, DeepSeek, etc.)
  * 4. Never overwrite admin_override pricing
  */
-export async function syncAIModelPricing(databases: Databases, apiKey: string): Promise<PricingSyncResult> {
+export async function syncAIModelPricing(databases: Databases, apiKey = ""): Promise<PricingSyncResult> {
     const result: PricingSyncResult = { modelsDiscovered: 0, modelsUpdated: 0, modelsCreated: 0, modelsSkipped: 0, pricingUpdated: 0, errors: [] };
     console.log("[AIPricingSync] Starting pricing sync...");
 
     const pricingData = await fetchGooglePricingPage();
     const pricingMap = new Map<string, ParsedPricing>();
     for (const p of pricingData) pricingMap.set(p.modelId, p);
-    console.log(`[AIPricingSync] Parsed ${pricingData.length} model prices from pricing page`);
+    console.log(`[AIPricingSync] Parsed ${pricingData.length} model prices from Google pricing page`);
 
-    const googleModels = await fetchGoogleModels(apiKey);
+    const googleModels = apiKey ? await fetchGoogleModels(apiKey) : [];
     result.modelsDiscovered = googleModels.length;
-    console.log(`[AIPricingSync] Discovered ${googleModels.length} models from API`);
+    console.log(`[AIPricingSync] Discovered ${googleModels.length} Gemini models from API`);
 
     // Fetch existing DB records
     const existingDocs = new Map<string, { $id: string; pricingSource: string }>();
@@ -194,6 +349,9 @@ export async function syncAIModelPricing(databases: Databases, apiKey: string): 
             result.errors.push(`Failed "${modelId}": ${error instanceof Error ? error.message : String(error)}`);
         }
     }
+
+    const azurePrices = await fetchAzureFoundryGrokPricing();
+    await upsertFoundryCatalog(databases, existingDocs, azurePrices, result);
 
     invalidatePricingCache();
     console.log(`[AIPricingSync] Done: ${result.modelsCreated} created, ${result.modelsUpdated} updated, ${result.modelsSkipped} admin-skipped, ${result.errors.length} errors`);

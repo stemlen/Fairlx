@@ -67,6 +67,7 @@ export type ProjectDocument = Models.Document & {
   uploadedBy: string;
   tags?: string[];
   isArchived: boolean;
+  aiSummary?: string;
 };
 
 export type PopulatedProjectDocument = ProjectDocument & {

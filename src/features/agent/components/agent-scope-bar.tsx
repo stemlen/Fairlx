@@ -15,6 +15,7 @@ import { AGENT_CONTEXT_QUERY_KEY } from "../constants";
 import type { AgentRun } from "../types";
 import { extractBoardProject } from "../lib/project-launch";
 import { useAgentUi } from "./agent-ui-context";
+import { GitHubAddOneButton } from "@/features/github-integration/components";
 import { AgentWorkingDropUp } from "./agent-run-hud";
 
 export function AgentScopeBar({
@@ -227,6 +228,15 @@ export function AgentScopeBar({
             <GitBranch className="size-3 text-muted-foreground" />
             {repo.branch || "main"}
           </span>
+        </>
+      ) : project && workspaceId ? (
+        <>
+          <span className="text-muted-foreground/50">/</span>
+          <GitHubAddOneButton
+            projectId={project.id}
+            workspaceId={workspaceId}
+            className="h-6 px-2 text-[11px] font-medium"
+          />
         </>
       ) : null}
       </div>

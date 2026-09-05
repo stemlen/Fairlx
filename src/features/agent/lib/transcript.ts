@@ -4,6 +4,7 @@ import { isTrainingKickoffContent } from "./session-context";
 import { unwrapMcpToolContent } from "./truncate";
 import type { AgentWorkItem } from "./work-item-table";
 import { memberLookupKey, type AgentMember } from "./member-table";
+import { looksLikeLlmUsageEvent } from "./run-usage";
 
 export type TranscriptStep = {
   call: AgentToolCall;
@@ -28,10 +29,18 @@ export function groupTranscript(
   messages: AgentChatMessage[],
   events: AgentToolEvent[] = [],
 ): TranscriptBlock[] {
+  return groupTranscriptWithLeftovers(messages, events).blocks;
+}
+
+export function groupTranscriptWithLeftovers(
+  messages: AgentChatMessage[],
+  events: AgentToolEvent[] = [],
+): { blocks: TranscriptBlock[]; leftoverEvents: AgentToolEvent[] } {
   const leftoverEvents = [...events];
   const takeEvent = (name: string) => {
     const pretty = name.replace(/^fairlx_/, "").replaceAll("_", " ");
     const index = leftoverEvents.findIndex((event) => {
+      if (isTranscriptMetaEvent(event)) return false;
       if (event.type === name || event.title.includes(name)) return true;
       if (pretty && event.title.toLowerCase().includes(pretty.toLowerCase())) return true;
       const payload = event.payload as { tool?: unknown } | undefined;
@@ -88,7 +97,143 @@ export function groupTranscript(
       blocks.push({ kind: "assistant", message });
     }
   }
-  return blocks;
+  return { blocks, leftoverEvents };
+}
+
+const THINKING_EVENT_TYPES = new Set<AgentToolEvent["type"]>(["thought"]);
+
+const HIDDEN_ACTIVITY_TYPES = new Set<AgentToolEvent["type"]>([
+  "thought",
+  "context_meter",
+  "confirmation",
+  "confirmation_resolved",
+  "llm_usage",
+]);
+
+const TRANSCRIPT_META_TYPES = new Set<AgentToolEvent["type"]>([
+  "thought",
+  "context_meter",
+  "confirmation",
+  "confirmation_resolved",
+  "llm_usage",
+  "subagent_started",
+  "subagent_progress",
+  "subagent_done",
+]);
+
+export function isTranscriptMetaEvent(event: AgentToolEvent): boolean {
+  return TRANSCRIPT_META_TYPES.has(event.type) || looksLikeLlmUsageEvent(event);
+}
+
+export function isHiddenActivityEvent(event: AgentToolEvent): boolean {
+  return HIDDEN_ACTIVITY_TYPES.has(event.type) || looksLikeLlmUsageEvent(event);
+}
+
+export type ConversationTurn = {
+  user?: AgentChatMessage;
+  thoughts: AgentToolEvent[];
+  activity: AgentToolEvent[];
+  usage: AgentToolEvent[];
+  blocks: TranscriptBlock[];
+  startedAt: string;
+  endedAt?: string;
+};
+
+function turnFromSlice(
+  user: AgentChatMessage | undefined,
+  rest: AgentChatMessage[],
+  events: AgentToolEvent[],
+): ConversationTurn {
+  const { blocks, leftoverEvents } = groupTranscriptWithLeftovers(user ? [user, ...rest] : rest, events);
+  const last = rest[rest.length - 1];
+  const lastEvent = leftoverEvents[leftoverEvents.length - 1];
+  return {
+    user,
+    thoughts: leftoverEvents.filter((event) => THINKING_EVENT_TYPES.has(event.type)),
+    activity: leftoverEvents.filter((event) => !isHiddenActivityEvent(event)),
+    usage: leftoverEvents.filter((event) => looksLikeLlmUsageEvent(event) || event.type === "context_meter"),
+    blocks: blocks.filter((block) => block.kind !== "user"),
+    startedAt: user?.createdAt || events[0]?.createdAt || leftoverEvents[0]?.createdAt || new Date().toISOString(),
+    endedAt: last?.createdAt || lastEvent?.createdAt,
+  };
+}
+
+export function groupConversationTurns(
+  messages: AgentChatMessage[],
+  events: AgentToolEvent[] = [],
+): ConversationTurn[] {
+  const visible = messages.filter(
+    (message) => !(message.role === "user" && isTrainingKickoffContent(message.content)),
+  );
+  const userIndexes: number[] = [];
+  visible.forEach((message, index) => {
+    if (message.role === "user") userIndexes.push(index);
+  });
+
+  if (!userIndexes.length) {
+    if (!visible.length && !events.length) return [];
+    return [turnFromSlice(undefined, visible, events)];
+  }
+
+  return userIndexes.map((start, index) => {
+    const end = index + 1 < userIndexes.length ? userIndexes[index + 1]! : visible.length;
+    const user = visible[start]!;
+    const rest = visible.slice(start + 1, end);
+    const nextUser = index + 1 < userIndexes.length ? visible[userIndexes[index + 1]!] : undefined;
+    const startMs = new Date(user.createdAt).getTime();
+    const endMs = nextUser ? new Date(nextUser.createdAt).getTime() : Number.POSITIVE_INFINITY;
+    const turnEvents = events.filter((event) => {
+      const time = new Date(event.createdAt).getTime();
+      return time >= startMs && time < endMs;
+    });
+    return turnFromSlice(user, rest, turnEvents);
+  });
+}
+
+export function formatThinkingDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const minutes = Math.floor(sec / 60);
+  const remain = sec % 60;
+  return remain ? `${minutes}m ${remain}s` : `${minutes}m`;
+}
+
+export function thinkingDurationMs(
+  thoughts: AgentToolEvent[],
+  startedAt?: string,
+  endedAt?: string,
+  live = false,
+): number {
+  const startSource = thoughts[0]?.createdAt || startedAt;
+  if (!startSource) return 0;
+  const start = new Date(startSource).getTime();
+  if (Number.isNaN(start)) return 0;
+  const endSource = live ? undefined : thoughts[thoughts.length - 1]?.createdAt || endedAt;
+  const end = endSource ? new Date(endSource).getTime() : Date.now();
+  if (Number.isNaN(end)) return 0;
+  return Math.max(0, end - start);
+}
+
+const GENERIC_THOUGHT = /^(Working|Thinking|Planning next steps)$/i;
+const PASS_DETAIL = /^Pass \d+$/i;
+
+/** Cursor-style thought body: keep reasoning, drop repeated "Pass N" noise. */
+export function visibleThoughtLines(thoughts: AgentToolEvent[]): AgentToolEvent[] {
+  const reasoning = thoughts.filter((event) => {
+    const detail = event.detail?.trim();
+    return Boolean(detail && detail !== event.title && !PASS_DETAIL.test(detail));
+  });
+  if (reasoning.length) return reasoning;
+  const seen = new Set<string>();
+  const unique: AgentToolEvent[] = [];
+  for (const event of thoughts) {
+    if (GENERIC_THOUGHT.test(event.title.trim()) && !event.detail?.trim()) continue;
+    const key = event.title.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(event);
+  }
+  return unique;
 }
 
 function asRecord(raw: string): Record<string, unknown> | null {
@@ -177,7 +322,7 @@ export function summarizeToolResult(name: string, content?: string): { ok: boole
     }
     return { ok: true, detail: `${count} ${key}` };
   }
-  if (name === "search_harness" || name === "web_search" || name === "file_search") {
+  if (name === "search_harness" || name === "web_search" || name === "web_fetch" || name === "file_search") {
     const hits = Array.isArray(parsed.hits) ? parsed.hits.length : Array.isArray(parsed.related) ? parsed.related.length : 0;
     const query = String(parsed.query || "");
     return { ok: true, detail: query ? `${query}${hits ? ` · ${hits} hits` : ""}` : `${hits} hits` };
@@ -277,7 +422,7 @@ export function collectMemberLookup(messages: AgentChatMessage[]): Map<string, A
 export function activitySummary(events: AgentToolEvent[]) {
   const thoughts = events.filter((event) => event.type === "thought");
   const searches = events.filter((event) =>
-    event.type === "file_search" || event.type === "web_search" || event.type === "search_harness" || event.type === "code_inspect",
+    event.type === "file_search" || event.type === "web_search" || event.type === "web_fetch" || event.type === "search_harness" || event.type === "code_inspect",
   );
   const edits = events.filter((event) =>
     event.type === "git_stage" || event.type === "git_unstage" || event.type === "git_commit_plan" || event.type === "create_project",

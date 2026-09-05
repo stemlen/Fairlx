@@ -22,6 +22,7 @@ export const ALL_SCOPES = [
   "audit:read",
   "attachments:read",
   "admin:manage",
+  "billing:read",
 ] as const;
 
 export type McpScope = (typeof ALL_SCOPES)[number];
@@ -54,6 +55,7 @@ const SCOPE_TO_PERMISSIONS: Record<string, string[]> = {
   "audit:read": [PERMISSIONS.VIEW_AUDIT_LOGS],
   "attachments:read": [PERMISSIONS.VIEW_ATTACHMENTS],
   "admin:manage": [PERMISSIONS.EDIT_SETTINGS, PERMISSIONS.DELETE_PROJECT],
+  "billing:read": [PERMISSIONS.EDIT_SETTINGS],
 };
 
 /**

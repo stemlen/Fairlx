@@ -411,6 +411,7 @@ export function UsageEventsTable({
                                                     const model = meta.model as string | undefined;
                                                     const promptTokens = Number(meta.promptTokens || 0);
                                                     const completionTokens = Number(meta.completionTokens || 0);
+                                                    const cachedTokens = Number(meta.cachedTokens || 0);
                                                     const costUSD = Number(meta.costUSD || 0);
                                                     if (!model) return null;
                                                     return (
@@ -418,7 +419,12 @@ export function UsageEventsTable({
                                                             <span className="inline-flex items-center rounded-full bg-pink-500/10 px-2 py-0.5 text-[10px] font-medium text-pink-400">
                                                                 {model}
                                                             </span>
-                                                            <span>{promptTokens.toLocaleString()} in / {completionTokens.toLocaleString()} out</span>
+                                                            <span>
+                                                                {promptTokens.toLocaleString()} in
+                                                                {cachedTokens > 0 ? ` / ${cachedTokens.toLocaleString()} cache` : ""}
+                                                                {" / "}
+                                                                {completionTokens.toLocaleString()} out
+                                                            </span>
                                                             {costUSD > 0 && (
                                                                 <span className="font-semibold text-emerald-500">${costUSD.toFixed(4)}</span>
                                                             )}

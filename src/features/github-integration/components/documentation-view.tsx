@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -17,10 +18,13 @@ import { Badge } from "@/components/ui/badge";
 import { 
   useGetDocumentation, 
   useGenerateDocumentation, 
+  useGetRepository,
   useRefineDocumentation, 
   useSaveDocumentation 
 } from "../api/use-github";
 import { exportToWord, exportToPDF } from "../lib/export-utils";
+import { GitHubOptionalPrompt } from "./github-optional-prompt";
+import { useWorkspaceId } from "@/features/workspaces/hooks/use-workspace-id";
 
 interface DocumentationViewProps {
   projectId: string;
@@ -65,6 +69,8 @@ const extractSection = (content: string, keywords: string[]): string => {
 };
 
 export const DocumentationView = ({ projectId }: DocumentationViewProps) => {
+  const workspaceId = useWorkspaceId();
+  const { data: repository } = useGetRepository(projectId);
   const { data: savedDocumentation, isLoading } = useGetDocumentation(projectId);
   const { mutate: generateDocumentation, isPending: isGenerating } = useGenerateDocumentation();
   const { mutate: refineDocumentation, isPending: isRefining } = useRefineDocumentation();
@@ -225,6 +231,24 @@ export const DocumentationView = ({ projectId }: DocumentationViewProps) => {
   }
 
   if (!previewData.content && !savedDocumentation) {
+    if (!repository) {
+      return (
+        <div className="space-y-6">
+          <GitHubOptionalPrompt projectId={projectId} workspaceId={workspaceId} />
+          <Card className="border-dashed border-2 rounded-[2rem] bg-slate-50/50 dark:bg-slate-900/50">
+            <CardContent className="flex flex-col items-center justify-center py-16">
+              <CardTitle className="text-2xl font-black mb-3 tracking-tighter">Technical code docs need a repo</CardTitle>
+              <CardDescription className="text-center mb-6 max-w-lg font-medium leading-relaxed opacity-70">
+                This page analyzes GitHub source. Add a repository when you have one. Until then, skip it and generate PRD, sprint, and user docs from Fairlx.
+              </CardDescription>
+              <Button asChild variant="outline" className="h-10 px-6 rounded-xl text-xs font-semibold">
+                <Link href={`/workspaces/${workspaceId}/projects/${projectId}/docs`}>Write planning docs instead</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
     return (
       <Card className="border-dashed border-2 rounded-[2rem] bg-slate-50/50 dark:bg-slate-900/50">
         <CardContent className="flex flex-col items-center justify-center py-24">

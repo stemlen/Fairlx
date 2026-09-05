@@ -72,10 +72,12 @@ export function defaultHarnessData(): Pick<
 }
 
 function mergeEnabledTools(saved: string[] | undefined): string[] {
-  if (!Array.isArray(saved)) return [...DEFAULT_ENABLED_TOOLS];
-  const hasNew = NEW_AGENT_TOOL_IDS.some((id) => saved.includes(id));
-  if (hasNew) return saved;
-  return [...saved, ...NEW_AGENT_TOOL_IDS];
+  const base = !Array.isArray(saved)
+    ? [...DEFAULT_ENABLED_TOOLS]
+    : NEW_AGENT_TOOL_IDS.some((id) => saved.includes(id))
+      ? saved
+      : [...saved, ...NEW_AGENT_TOOL_IDS];
+  return base.includes("web_fetch") ? base : [...base, "web_fetch"];
 }
 
 function parsePlugins(raw: unknown): AgentPluginConnection[] {

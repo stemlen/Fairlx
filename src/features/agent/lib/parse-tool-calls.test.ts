@@ -35,6 +35,10 @@ describe("resolveToolName", () => {
       "fairlx_project_member_add",
     );
     expect(resolveToolName("mcp_list", MCP)).toBe("mcp_list");
+    expect(resolveToolName("fairlx_project_teams_list", ["fairlx_project_team_list"])).toBe(
+      "fairlx_project_team_list",
+    );
+    expect(resolveToolName("create_project", ["fairlx_project_create"])).toBe("fairlx_project_create");
   });
 });
 

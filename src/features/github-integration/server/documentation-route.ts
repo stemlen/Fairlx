@@ -114,7 +114,7 @@ const app = new Hono()
 
           // Calculate model-aware cost and log with full token data
           const pricing = await getAIModelPricing(databases, aiResponse.model);
-          const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens);
+          const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens, aiResponse.tokenUsage.cachedTokens);
 
           logAIUsage({
             databases,
@@ -123,6 +123,7 @@ const app = new Hono()
             model: aiResponse.model,
             promptTokens: aiResponse.tokenUsage.promptTokens,
             completionTokens: aiResponse.tokenUsage.completionTokens,
+            cachedTokens: aiResponse.tokenUsage.cachedTokens,
             totalTokens: aiResponse.tokenUsage.totalTokens,
             costUSD,
             units: aiResponse.tokenUsage.totalTokens,
@@ -206,7 +207,7 @@ const app = new Hono()
 
         // Calculate model-aware cost and log with full token data
         const pricing = await getAIModelPricing(databases, aiResponse.model);
-        const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens);
+        const costUSD = calculateAICallCostUSD(pricing, aiResponse.tokenUsage.promptTokens, aiResponse.tokenUsage.completionTokens, aiResponse.tokenUsage.cachedTokens);
 
         logAIUsage({
           databases,
@@ -215,6 +216,7 @@ const app = new Hono()
           model: aiResponse.model,
           promptTokens: aiResponse.tokenUsage.promptTokens,
           completionTokens: aiResponse.tokenUsage.completionTokens,
+          cachedTokens: aiResponse.tokenUsage.cachedTokens,
           totalTokens: aiResponse.tokenUsage.totalTokens,
           costUSD,
           units: aiResponse.tokenUsage.totalTokens,

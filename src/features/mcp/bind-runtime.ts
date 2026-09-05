@@ -39,6 +39,11 @@ import {
   ATTACHMENTS_ID,
   AGENT_HARNESS_ID,
   AGENT_RUNS_ID,
+  DEPARTMENTS_ID,
+  DEPARTMENT_PERMISSIONS_ID,
+  ORG_MEMBER_DEPARTMENTS_ID,
+  USAGE_EVENTS_ID,
+  WALLETS_ID,
 } from "@/config";
 import { hashMcpToken } from "@/features/integrations/lib/helpers";
 import {
@@ -105,6 +110,11 @@ const COLLECTIONS: McpCollections = {
   attachments: ATTACHMENTS_ID,
   agentHarness: AGENT_HARNESS_ID,
   agentRuns: AGENT_RUNS_ID,
+  departments: DEPARTMENTS_ID,
+  departmentPermissions: DEPARTMENT_PERMISSIONS_ID,
+  orgMemberDepartments: ORG_MEMBER_DEPARTMENTS_ID,
+  usageEvents: USAGE_EVENTS_ID,
+  wallets: WALLETS_ID,
 };
 
 const IDEMPOTENCY_TTL_SECONDS = 60 * 60 * 24;

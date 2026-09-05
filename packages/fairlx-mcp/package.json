@@ -8,7 +8,8 @@
     "fairlx-mcp": "./src/cli/stdio.ts"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./markdown": "./src/lib/project-doc-markdown.ts"
   },
   "scripts": {
     "start": "tsx src/cli/stdio.ts"

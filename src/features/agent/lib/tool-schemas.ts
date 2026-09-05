@@ -42,11 +42,21 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
     },
   },
   web_search: {
-    description: "Search the public web via DuckDuckGo instant answers.",
+    description:
+      "Search Wikipedia and the public web. Use several distinct queries (market, competitors, users, regulations). Then web_fetch the best URLs. Required before creating project docs.",
     parameters: {
       type: "object",
       properties: { query: { type: "string" } },
       required: ["query"],
+    },
+  },
+  web_fetch: {
+    description:
+      "Fetch a public http(s) page and return visible text for research. Use after web_search. Do not fetch localhost or private IPs.",
+    parameters: {
+      type: "object",
+      properties: { url: { type: "string" } },
+      required: ["url"],
     },
   },
   database_query: {
@@ -116,7 +126,7 @@ const TOOL_PARAMETERS: Record<string, { description: string; parameters: Record<
   },
   delegate_agent: {
     description:
-      "Delegate one subject to a specialist. Call multiple times in one step. Set subject to a spec heading (one module). Planner = timeline; builder = create that subject's work; ops = assign a percent.",
+      "Delegate one subject to a specialist. Independent work MUST be multiple delegate_agent calls in the same step so they run in parallel. Set subject to a spec heading (one module). Planner = timeline; builder = create that subject's work; ops = assign a percent. Do not delegate once per PRD/FRD/BRD — documentation is one builder or the orchestrator.",
     parameters: {
       type: "object",
       properties: {

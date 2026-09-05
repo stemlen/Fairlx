@@ -49,11 +49,13 @@ import {
 import { selectedModelLabel } from "../lib/client-defaults";
 import { clockTime, relativeTime } from "../lib/agent-ui";
 import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launch";
+import { aggregateLlmUsage, formatCompactUsageLine, looksLikeLlmUsageEvent } from "../lib/run-usage";
 import type { AgentRun, AgentToolEvent } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
 import { AgentCommandInput } from "./agent-command-input";
 import { useAgentUi } from "./agent-ui-context";
 import { ModelPicker } from "./model-picker";
+import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 
 
 function FloatingComposer({ children }: { children: React.ReactNode }) {
@@ -211,7 +213,10 @@ function WorkflowSidebar({
     ([name, server]) => !isInternalMcpServer(name, server) && !server.disabled
   ).length;
   const staging = harness?.gitStaging?.items ?? [];
-  const live = events.slice(-12);
+  const live = events
+    .filter((event) => event.type !== "context_meter" && !looksLikeLlmUsageEvent(event))
+    .slice(-40);
+  const usage = aggregateLlmUsage(events);
   const repo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
   const terminals = events.filter((event) => event.type === "terminal");
   const githubUrl = repo?.githubUrl || (repo?.owner && repo.repositoryName ? `https://github.com/${repo.owner}/${repo.repositoryName}` : "");
@@ -286,13 +291,8 @@ function WorkflowSidebar({
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
                 </div>
               </button>
-              {project && !repo ? (
-                <Link
-                  href={`/workspaces/${project.workspaceId}/projects/${project.id}/github`}
-                  className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300 font-medium"
-                >
-                  No GitHub repo linked. Link GitHub to attach code and inspect commits.
-                </Link>
+              {project && !repo && project.workspaceId ? (
+                <GitHubOptionalPrompt projectId={project.id} workspaceId={project.workspaceId} compact />
               ) : null}
             </div>
 
@@ -315,8 +315,9 @@ function WorkflowSidebar({
               ) : (
                 <div className="relative pl-3 border-l-2 border-sidebar-border flex flex-col gap-3 ml-2">
                   {live.map((event, index) => {
-                    const latest = index === live.length - 1 && run.status === "running";
+                    const latest = index === live.length - 1 && (run.status === "running" || run.status === "awaiting_confirmation" || run.status === "awaiting_plugin");
                     const failed = event.type === "error" || /fail/i.test(event.title);
+                    const thinking = event.type === "thought" || event.type === "subagent_progress";
                     return (
                       <div key={event.id} className="relative">
                         <div
@@ -326,21 +327,30 @@ function WorkflowSidebar({
                               ? "bg-primary shadow-[0_0_6px_rgba(59,130,246,0.8)]"
                               : failed
                                 ? "bg-destructive"
-                                : "bg-muted-foreground/50"
+                                : thinking
+                                  ? "bg-violet-400/80"
+                                  : "bg-muted-foreground/50"
                           )}
                         />
                         <div className="flex items-start text-xs">
                           <span className={cn("w-14 shrink-0 text-[11px]", latest ? "text-primary font-medium" : "text-muted-foreground")}>
                             {clockTime(event.createdAt, true)}
                           </span>
-                          <span
-                            className={cn(
-                              "flex-1 ml-1.5 truncate",
-                              latest ? "text-primary font-medium" : failed ? "text-destructive font-medium" : "text-foreground"
-                            )}
-                          >
-                            {event.title}
-                          </span>
+                          <div className="flex-1 ml-1.5 min-w-0">
+                            <span
+                              className={cn(
+                                "block",
+                                latest ? "text-primary font-medium" : failed ? "text-destructive font-medium" : "text-foreground"
+                              )}
+                            >
+                              {event.title}
+                            </span>
+                            {event.detail ? (
+                              <span className="block text-[11px] text-muted-foreground mt-0.5 line-clamp-3 whitespace-pre-wrap">
+                                {event.detail}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     );
@@ -370,6 +380,14 @@ function WorkflowSidebar({
                   <span className="text-muted-foreground">Started</span>
                   <span className="text-foreground font-medium">{relativeTime(run.createdAt)}</span>
                 </div>
+                {usage ? (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground shrink-0">Usage</span>
+                    <span className="text-foreground font-medium text-right leading-snug">
+                      {formatCompactUsageLine(usage)}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
           </>

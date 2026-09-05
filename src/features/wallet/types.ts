@@ -54,8 +54,10 @@ export enum WalletStatus {
  * Each user/org has exactly one wallet.
  * Balance is stored in smallest currency unit (cents for USD).
  * 
- * INVARIANT: balance >= 0 (never negative)
- * INVARIANT: lockedBalance <= balance
+ * INVARIANT: balance may go negative down to -$20 (overdraft). At or below
+ * -$20 the billing account is locked (SUSPENDED).
+ * INVARIANT: lockedBalance <= max(balance, 0) + overdraft is not required;
+ * holds still require available funds.
  */
 export type Wallet = Models.Document & {
     /** User ID (for PERSONAL accounts) */

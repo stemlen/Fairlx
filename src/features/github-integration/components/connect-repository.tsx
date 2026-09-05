@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -66,12 +66,14 @@ interface ConnectRepositoryProps {
   projectId: string;
   isUpdate?: boolean;
   canManage?: boolean;
+  trigger?: ReactNode;
 }
 
 export const ConnectRepository = ({
   projectId,
   isUpdate = false,
   canManage = false,
+  trigger,
 }: ConnectRepositoryProps) => {
   const [open, setOpen] = useState(false);
   const [connectionStep, setConnectionStep] = useState<"choose" | "form" | "select-repo">("choose");
@@ -664,11 +666,16 @@ export const ConnectRepository = ({
   if (isPendingOAuthSetup) {
     if (!canManage) return null;
     return (
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setConnectionStep("choose");
+      }}>
         <DialogTrigger asChild>
-          <Button className="w-full text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white animate-pulse">
-            Complete GitHub Connection
-          </Button>
+          {trigger ?? (
+            <Button className="w-full text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white animate-pulse">
+              Complete GitHub Connection
+            </Button>
+          )}
         </DialogTrigger>
         <DialogContent className="sm:max-w-[500px] p-6">
           {renderSelectRepoStep()}
@@ -680,9 +687,12 @@ export const ConnectRepository = ({
   if (!canManage) return null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(next) => {
+      setOpen(next);
+      if (!next) setConnectionStep("choose");
+    }}>
       <DialogTrigger asChild>
-        <Button className="w-full text-xs font-semibold">Connect Repository</Button>
+        {trigger ?? <Button className="w-full text-xs font-semibold">Connect Repository</Button>}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px] p-6">
         {connectionStep === "choose"

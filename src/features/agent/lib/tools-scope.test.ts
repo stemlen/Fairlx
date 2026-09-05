@@ -89,6 +89,23 @@ describe("openaiToolsForTurn", () => {
     expect(names).not.toContain("list_projects");
   });
 
+  it("hides native create_project when Fairlx MCP create exists", () => {
+    const tools = openaiToolsForTurn({
+      mode: "agent",
+      enabledTools: [...DEFAULT_ENABLED_TOOLS],
+      mcpTools: [
+        {
+          name: "fairlx_project_create",
+          description: "Create a project",
+          inputSchema: { type: "object", properties: { name: { type: "string" } } },
+        },
+      ],
+    });
+    const names = tools.map((tool) => tool.function.name);
+    expect(names).toContain("fairlx_project_create");
+    expect(names).not.toContain("create_project");
+  });
+
   it("does not expose save_personal_agent on normal agent turns", () => {
     const tools = openaiToolsForTurn({
       mode: "agent",

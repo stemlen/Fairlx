@@ -252,8 +252,8 @@ export function ManageModelsDialog({ open, onOpenChange }: ManageModelsDialogPro
           <DialogTitle>Manage Models</DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {hasGrok
-              ? "Auto routes between Grok 4.6 and DeepSeek V4 Flash. Add BYOK providers from the catalog."
-              : "Auto uses DeepSeek V4 Flash. Add BYOK providers from the catalog."}
+              ? "Auto routes between Grok 4.6 and DeepSeek V4 Flash. GPT-5.6 Luna is selectable in Manual. Add BYOK providers from the catalog."
+              : "Auto uses DeepSeek V4 Flash. GPT-5.6 Luna is selectable in Manual. Add BYOK providers from the catalog."}
           </DialogDescription>
         </DialogHeader>
 

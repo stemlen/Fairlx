@@ -3,18 +3,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
   ArrowUpRight,
-  Bot,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   Copy,
   FolderKanban,
   Loader2,
   Pencil,
+  Sparkles,
+  Users,
   XCircle,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -26,7 +25,6 @@ import { cn } from "@/lib/utils";
 
 import { useGetAgentContext } from "../api/use-agent-context";
 import { useGetAgentHarness } from "../api/use-agent-harness";
-import { clockTime } from "../lib/agent-ui";
 import { splitAssistantChoices } from "../lib/assistant-choices";
 import { splitMarkdownMemberTable, type AgentMember } from "../lib/member-table";
 import {
@@ -37,26 +35,32 @@ import {
 } from "../lib/project-launch";
 import { displayUserContent } from "../lib/session-context";
 import {
-  activitySummary,
   collectMemberLookup,
   collectWorkItemLookup,
-  groupTranscript,
+  formatThinkingDuration,
+  groupConversationTurns,
+  isHiddenActivityEvent,
   isRepeatedToolResult,
   summarizeToolResult,
+  thinkingDurationMs,
   toolLabel,
+  visibleThoughtLines,
   workItemListRows,
   workspaceMemberRows,
+  type TranscriptBlock,
   type TranscriptStep,
 } from "../lib/transcript";
 import { isPersistedTruncatedAssistant, sanitizeAssistantVisible } from "../lib/visible-content";
 import { splitMarkdownWorkItemTable, type AgentWorkItem } from "../lib/work-item-table";
 import { findPendingConfirmation, isWriteToolCall } from "../lib/write-guard";
 import { findPendingPlugin } from "../plugins/catalog";
-import type { AgentChatMessage, AgentRun } from "../types";
+import type { AgentChatMessage, AgentRun, AgentToolEvent } from "../types";
 import { AgentMemberTable } from "./agent-member-table";
 import { AgentWorkItemTable } from "./agent-work-item-table";
+import { AgentTurnUsageCard } from "./agent-run-hud";
 import { PendingConfirmationCard } from "./pending-confirmation-card";
 import { PluginConnectCard } from "./plugin-connect-card";
+import { GitHubOptionalPrompt } from "@/features/github-integration/components";
 
 function ProjectKanbanCta({
   workspaceId,
@@ -143,29 +147,23 @@ function UserBubble({
   };
 
   return (
-    <div className="flex gap-4 justify-end">
+    <div className="flex justify-end">
       <div
         className={cn(
-          "bg-primary/10 border border-primary/20 rounded-2xl max-w-2xl text-foreground relative group shadow-sm",
-          compact ? "p-3" : "p-4",
+          "bg-muted/70 rounded-2xl rounded-br-md max-w-[min(36rem,85%)] text-foreground relative group",
+          compact ? "px-3.5 py-2.5" : "px-4 py-3",
         )}
       >
-        <div className="text-xs text-muted-foreground mb-1 font-medium flex items-center justify-between gap-3">
-          <span>
-            You <span className="mx-1">•</span> {clockTime(message.createdAt)}
-          </span>
-          {canEdit && !editing ? (
-            <button
-              type="button"
-              onClick={startEdit}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground transition-opacity"
-              title="Edit and send as a new question"
-            >
-              <Pencil className="size-3" />
-              Edit
-            </button>
-          ) : null}
-        </div>
+        {canEdit && !editing ? (
+          <button
+            type="button"
+            onClick={startEdit}
+            className="absolute -left-8 top-2 inline-flex items-center justify-center size-6 rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-foreground hover:bg-muted transition-opacity"
+            title="Edit and send as a new question"
+          >
+            <Pencil className="size-3.5" />
+          </button>
+        ) : null}
         {editing ? (
           <div className="space-y-2">
             <textarea
@@ -204,7 +202,7 @@ function UserBubble({
             </div>
           </div>
         ) : (
-          <p className="leading-relaxed whitespace-pre-wrap text-sm">{visible}</p>
+          <p className="leading-relaxed whitespace-pre-wrap text-[13.5px]">{visible}</p>
         )}
       </div>
     </div>
@@ -421,19 +419,6 @@ function TruncationNote({ content }: { content?: string | null }) {
   );
 }
 
-function AgentAvatar({ compact }: { compact?: boolean }) {
-  return (
-    <div
-      className={cn(
-        "rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 shadow-sm",
-        compact ? "size-7" : "size-8",
-      )}
-    >
-      <Bot className="size-4" />
-    </div>
-  );
-}
-
 function AgentBubble({
   message,
   workItems,
@@ -442,7 +427,6 @@ function AgentBubble({
   projectId,
   choicesEnabled = false,
   onPickChoice,
-  compact,
 }: {
   message: AgentChatMessage;
   workItems?: Map<string, AgentWorkItem>;
@@ -451,60 +435,124 @@ function AgentBubble({
   projectId?: string;
   choicesEnabled?: boolean;
   onPickChoice?: (choice: string) => void;
-  compact?: boolean;
 }) {
   const visible = sanitizeAssistantVisible(message.content);
   if (!visible) return null;
   const { text, choices } = splitAssistantChoices(visible);
   return (
-    <div className="flex gap-3.5">
-      <AgentAvatar compact={compact} />
-      <div className="flex-1 flex flex-col gap-2 min-w-0">
-        <div className="text-xs text-muted-foreground flex items-center gap-2">
-          <span className="font-semibold text-foreground">fairlx Agent</span>
-          <span>•</span>
-          <span>{clockTime(message.createdAt)}</span>
+    <div className="flex-1 min-w-0 max-w-[46rem]">
+      {text ? (
+        <MarkdownContent
+          content={text}
+          workItems={workItems}
+          members={members}
+          workspaceId={workspaceId}
+          projectId={projectId}
+        />
+      ) : null}
+      {choices.length ? (
+        <div className="flex flex-wrap gap-2 mt-3">
+          {choices.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              disabled={!choicesEnabled}
+              onClick={() => onPickChoice?.(choice)}
+              className={cn(
+                "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                choicesEnabled
+                  ? "border-border bg-muted/40 text-foreground hover:bg-muted"
+                  : "border-border bg-muted/20 text-muted-foreground cursor-default",
+              )}
+            >
+              {choice}
+            </button>
+          ))}
         </div>
-        <div className="max-w-4xl">
-          {text ? (
-            <MarkdownContent
-              content={text}
-              workItems={workItems}
-              members={members}
-              workspaceId={workspaceId}
-              projectId={projectId}
-            />
-          ) : null}
-          {choices.length ? (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {choices.map((choice) => (
-                <button
-                  key={choice}
-                  type="button"
-                  disabled={!choicesEnabled}
-                  onClick={() => onPickChoice?.(choice)}
-                  className={cn(
-                    "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors shadow-sm",
-                    choicesEnabled
-                      ? "border-violet-200 dark:border-violet-800 bg-violet-50/90 dark:bg-violet-950/50 text-foreground hover:bg-violet-100 dark:hover:bg-violet-900/60"
-                      : "border-border bg-muted/40 text-muted-foreground cursor-default",
-                  )}
-                >
-                  {choice}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <TruncationNote content={message.content} />
+      ) : null}
+      <TruncationNote content={message.content} />
+    </div>
+  );
+}
+
+function LiveElapsed({ since }: { since: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const ms = Math.max(0, now - new Date(since).getTime());
+  return <span>{formatThinkingDuration(ms)}</span>;
+}
+
+function ThinkingBlock({
+  thoughts,
+  startedAt,
+  endedAt,
+  live,
+  keepOpen = false,
+}: {
+  thoughts: AgentToolEvent[];
+  startedAt: string;
+  endedAt?: string;
+  live: boolean;
+  keepOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(live || keepOpen);
+  useEffect(() => {
+    if (live || keepOpen) setOpen(true);
+    else setOpen(false);
+  }, [live, keepOpen]);
+  const lines = visibleThoughtLines(thoughts);
+  const duration = thinkingDurationMs(thoughts, startedAt, endedAt, live);
+  const label = live ? "Thinking" : `Thought ${formatThinkingDuration(duration || 1000)}`;
+  const canExpand = lines.length > 0 || live;
+  if (!thoughts.length && !live) return null;
+
+  return (
+    <div className="min-w-0 max-w-[46rem]">
+      <button
+        type="button"
+        onClick={() => {
+          if (!canExpand) return;
+          setOpen((value) => !value);
+        }}
+        className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {live ? <Loader2 className="size-3.5 animate-spin text-primary" /> : <Sparkles className="size-3.5 text-muted-foreground" />}
+        <span className="font-medium">{label}</span>
+        {live ? (
+          <span className="tabular-nums text-[12px]">
+            <LiveElapsed since={thoughts[0]?.createdAt || startedAt} />
+          </span>
+        ) : null}
+        {canExpand ? open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" /> : null}
+      </button>
+      {open && canExpand ? (
+        <div className="mt-1.5 ml-1 border-l border-border/80 pl-3 space-y-1.5 text-[12.5px] text-muted-foreground leading-relaxed">
+          {lines.length ? (
+            lines.map((event) => {
+              const body =
+                event.detail && event.detail !== event.title && !/^Pass \d+$/i.test(event.detail.trim())
+                  ? event.detail
+                  : event.title;
+              return (
+                <p key={event.id} className="whitespace-pre-wrap">
+                  {body}
+                </p>
+              );
+            })
+          ) : (
+            <p className="italic">Working through the request…</p>
+          )}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
 
 function StepRow({
   step,
-  index,
   active,
   awaiting,
   workItems,
@@ -513,7 +561,6 @@ function StepRow({
   projectId,
 }: {
   step: TranscriptStep;
-  index: number;
   active?: boolean;
   awaiting?: boolean;
   workItems?: Map<string, AgentWorkItem>;
@@ -621,38 +668,27 @@ function StepRow({
   };
 
   const isWrite = isWriteToolCall(step.call);
-  const isCompleted = Boolean(step.result && summary.ok);
   const isFailed = Boolean(step.result && !summary.ok);
   const isAwaiting = awaiting && !step.result && isWrite;
   const isRunning = active && !step.result;
 
   return (
-    <div
-      className={cn(
-        "px-4 py-3 flex flex-col transition-colors",
-        (isRunning || isAwaiting) &&
-          "bg-primary/5 relative before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-primary"
-      )}
-    >
-      <div className="flex items-start gap-3.5 w-full">
-        <div className="mt-0.5 size-4 text-center shrink-0">
+    <div className={cn("py-1 flex flex-col", (isRunning || isAwaiting) && "bg-primary/5 rounded-md -mx-1 px-1")}>
+      <div className="flex items-start gap-2 w-full">
+        <div className="mt-0.5 size-4 shrink-0 flex items-center justify-center">
           {isRunning ? (
-            <span className="font-mono text-primary text-xs font-bold">{index + 1}</span>
+            <Loader2 className="size-3.5 animate-spin text-primary" />
           ) : isAwaiting ? (
-            <span className="font-mono text-amber-600 dark:text-amber-400 text-xs font-bold">{index + 1}</span>
-          ) : isCompleted ? (
-            <Check className="size-4 text-green-500" />
+            <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
           ) : isFailed ? (
-            <XCircle className="size-4 text-destructive" />
-          ) : !active && !awaiting ? (
-            <Check className="size-4 text-green-500" />
+            <XCircle className="size-3.5 text-destructive" />
           ) : (
-            <span className="font-mono text-muted-foreground text-xs">{index + 1}</span>
+            <Check className="size-3.5 text-muted-foreground" />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={cn("text-xs font-semibold", isRunning ? "text-primary" : "text-foreground")}>
+            <span className={cn("text-[13px]", isRunning ? "text-primary font-medium" : "text-foreground")}>
               {toolLabel(step.call.name)}
             </span>
             {workItemMeta?.type ? (
@@ -706,26 +742,14 @@ function StepRow({
               : sanitizeAssistantVisible(step.event?.title || summary.detail)}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 text-xs shrink-0">
+        <div className="flex items-center gap-1.5 text-[11px] shrink-0 text-muted-foreground">
           {isRunning ? (
-            <span className="text-primary font-medium flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse" />
-              In progress
-            </span>
+            <span className="text-primary font-medium">Running</span>
           ) : isAwaiting ? (
-            <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-              Pending
-            </span>
-          ) : isCompleted ? (
-            <span className="text-green-500 font-medium">Completed</span>
+            <span className="text-amber-600 dark:text-amber-400 font-medium">Pending</span>
           ) : isFailed ? (
             <span className="text-destructive font-medium">Failed</span>
-          ) : !active && !awaiting ? (
-            <span className="text-green-500 font-medium">Completed</span>
-          ) : (
-            <span className="text-muted-foreground font-medium">Queued</span>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -814,7 +838,6 @@ function StepsCard({
   members,
   workspaceId,
   projectId,
-  compact,
 }: {
   lead?: AgentChatMessage;
   steps: TranscriptStep[];
@@ -824,89 +847,63 @@ function StepsCard({
   members?: Map<string, AgentMember>;
   workspaceId?: string;
   projectId?: string;
-  compact?: boolean;
 }) {
   const [open, setOpen] = useState(Boolean(running || awaiting));
-  const failed = steps.some((step) => step.result && !summarizeToolResult(step.call.name, step.result?.content).ok);
   const last = steps[steps.length - 1];
   const inProgress = (running || awaiting) && last && !last.result;
-  const answering = running && Boolean(last?.result) && !awaiting;
   const leadVisible = sanitizeAssistantVisible(lead?.content ?? "");
   const visibleSteps = steps.filter((step) => !isRepeatedToolResult(step.result?.content));
   const skipped = steps.length - visibleSteps.length;
+  const doneCount = visibleSteps.filter((step) => step.result).length;
 
   useEffect(() => {
     if (running || awaiting) setOpen(true);
   }, [running, awaiting]);
 
+  if (!visibleSteps.length && !leadVisible) return null;
+
   return (
-    <div className="flex gap-3.5">
-      <AgentAvatar compact={compact} />
-      <div className="flex-1 min-w-0 flex flex-col gap-2.5">
-        <div className="text-xs text-muted-foreground flex items-center gap-2">
-          <span className="font-semibold text-foreground">fairlx Agent</span>
-            <TruncationNote content={lead?.content} />
-          {lead?.createdAt ? (
-            <>
-              <span>•</span>
-              <span>{clockTime(lead.createdAt)}</span>
-            </>
-          ) : null}
-        </div>
-        {leadVisible ? (
-          <div className="max-w-4xl">
-            <MarkdownContent
-              content={leadVisible}
-              workItems={workItems}
-              members={members}
-              workspaceId={workspaceId}
-              projectId={projectId}
-            />
-          </div>
-        ) : null}
-        <div className="bg-card border border-border rounded-xl overflow-hidden max-w-4xl shadow-sm mt-1">
+    <div className="min-w-0 max-w-[46rem] flex flex-col gap-2">
+      {leadVisible ? (
+        <MarkdownContent
+          content={leadVisible}
+          workItems={workItems}
+          members={members}
+          workspaceId={workspaceId}
+          projectId={projectId}
+        />
+      ) : null}
+      <TruncationNote content={lead?.content} />
+      {visibleSteps.length ? (
+        <div>
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className="w-full px-4 py-3 border-b border-border flex items-center justify-between text-left hover:bg-muted/40 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            <div className="flex items-center gap-2.5">
-              {inProgress || answering ? (
-                <Loader2 className="size-4 animate-spin text-primary" />
-              ) : failed ? (
-                <AlertTriangle className="size-4 text-destructive" />
-              ) : (
-                <CheckCircle2 className="size-4 text-green-500" />
-              )}
-              <span className="font-medium text-foreground text-sm">
-                {awaiting
-                  ? "Waiting for approval"
-                  : inProgress
-                    ? "Working…"
-                    : answering
-                      ? "Answering…"
-                      : failed
-                        ? "Finished with errors"
-                        : "Finished"}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>
-                {visibleSteps.length} {visibleSteps.length === 1 ? "step" : "steps"}
-                {skipped ? ` · ${skipped} skipped` : ""}
-              </span>
-              {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-            </div>
+            {inProgress ? (
+              <Loader2 className="size-3.5 animate-spin text-primary" />
+            ) : (
+              <CheckCircle2 className="size-3.5 text-muted-foreground" />
+            )}
+            <span>
+              {awaiting
+                ? "Waiting for approval"
+                : inProgress
+                  ? `Using tools · ${doneCount}/${visibleSteps.length}`
+                  : `${visibleSteps.length} ${visibleSteps.length === 1 ? "tool" : "tools"}`}
+              {skipped ? ` · ${skipped} skipped` : ""}
+            </span>
+            {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           </button>
           {open ? (
-            <div className="flex flex-col divide-y divide-border">
+            <div className="mt-1 ml-1 pl-3 border-l border-border/80">
               {visibleSteps.map((step, index) => {
                 const active = inProgress && index === visibleSteps.length - 1 && !step.result;
                 return (
                   <StepRow
                     key={step.call.id || `${step.call.name}-${index}`}
                     step={step}
-                    index={index}
                     active={active}
                     awaiting={awaiting}
                     workItems={workItems}
@@ -919,7 +916,38 @@ function StepsCard({
             </div>
           ) : null}
         </div>
-      </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ActivityLines({ events }: { events: AgentToolEvent[] }) {
+  const visible = events.filter((event) => !isHiddenActivityEvent(event));
+  if (!visible.length) return null;
+  return (
+    <div className="min-w-0 max-w-[46rem] space-y-1">
+      {visible.map((event) => {
+        const failed = event.type === "error" || /fail/i.test(event.title);
+        const subagent = event.type.startsWith("subagent_");
+        const waiting = event.type === "subagent_progress" || event.type === "subagent_started";
+        return (
+          <div key={event.id} className="flex items-start gap-2 text-[12.5px]">
+            {failed ? (
+              <XCircle className="size-3.5 mt-0.5 text-destructive shrink-0" />
+            ) : waiting ? (
+              <Loader2 className="size-3.5 mt-0.5 animate-spin text-primary shrink-0" />
+            ) : subagent ? (
+              <Users className="size-3.5 mt-0.5 text-primary shrink-0" />
+            ) : (
+              <Check className="size-3.5 mt-0.5 text-muted-foreground shrink-0" />
+            )}
+            <p className={cn("leading-relaxed", failed ? "text-destructive" : "text-muted-foreground")}>
+              <span className={failed ? "font-medium" : "text-foreground/80"}>{event.title}</span>
+              {event.detail ? <span> — {event.detail}</span> : null}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -952,7 +980,16 @@ export function AgentChatThread({
   const running = run.status === "running";
   const awaiting = run.status === "awaiting_confirmation";
   const awaitingPlugin = run.status === "awaiting_plugin";
-  const blocks = useMemo(() => groupTranscript(messages, events), [messages, events]);
+  const failedOrStopped = run.status === "failed" || run.status === "stopped";
+  const turns = useMemo(() => groupConversationTurns(messages, events), [messages, events]);
+  const blocks = useMemo(() => {
+    const list: TranscriptBlock[] = [];
+    for (const turn of turns) {
+      if (turn.user) list.push({ kind: "user" as const, message: turn.user });
+      list.push(...turn.blocks);
+    }
+    return list;
+  }, [turns]);
   const workItems = useMemo(() => collectWorkItemLookup(messages), [messages]);
   const members = useMemo(() => collectMemberLookup(messages), [messages]);
   const boardProject = useMemo(
@@ -963,14 +1000,18 @@ export function AgentChatThread({
     () => kanbanCtasForBlocks(blocks, run.workspaceId, boardProject),
     [blocks, run.workspaceId, boardProject],
   );
-  const lastBlock = blocks[blocks.length - 1];
-  const lastAssistantId = [...blocks].reverse().find((block) => block.kind === "assistant")?.message.id;
-  const showThinking = running && !awaiting && !awaitingPlugin && lastBlock?.kind !== "steps";
-  const thinkingLabel = !lastBlock || lastBlock.kind === "user" ? "Thinking…" : "Answering…";
-  const lastStepsBlockIndex = blocks.reduceRight(
-    (acc, b, i) => (acc === -1 && b.kind === "steps" ? i : acc),
-    -1,
-  );
+  const lastAssistantId = [...turns]
+    .reverse()
+    .flatMap((turn) => turn.blocks)
+    .find((block) => block.kind === "assistant");
+  const lastAssistantMessageId = lastAssistantId?.kind === "assistant" ? lastAssistantId.message.id : undefined;
+  const lastTurn = turns[turns.length - 1];
+  const lastTurnLive = Boolean(lastTurn && (running || awaiting || awaitingPlugin));
+  const showLiveThinking =
+    lastTurnLive &&
+    !awaiting &&
+    !awaitingPlugin &&
+    !lastTurn?.blocks.some((block) => block.kind === "assistant" && sanitizeAssistantVisible(block.message.content));
   const pending =
     findPendingConfirmation(events, messages) ??
     (awaiting
@@ -983,94 +1024,112 @@ export function AgentChatThread({
   const effectiveProjectId = run.projectId || harness?.settings.defaultProjectId;
   const project = context?.projects.find((item) => item.id === effectiveProjectId);
   const linkedRepo = (context?.githubRepos ?? []).find((item) => item.projectId === project?.id);
-  const summary = activitySummary(events);
+  const currentAction = [...events].reverse().find(
+    (event) => event.type !== "context_meter" && event.type !== "confirmation_resolved",
+  );
+
+  let blockIndex = -1;
 
   return (
-    <div className={cn("max-w-4xl mx-auto flex flex-col", compact ? "gap-4" : "gap-6")}>
+    <div className={cn("max-w-3xl mx-auto flex flex-col", compact ? "gap-5" : "gap-7")}>
       {project && !linkedRepo ? (
-        <Link
-          href={`/workspaces/${project.workspaceId}/projects/${project.id}/github`}
-          className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-300 font-medium"
-        >
-          This project has no GitHub access linked. Link a repository so the agent can inspect code, suggest branches, and plan commits.
-        </Link>
+        <GitHubOptionalPrompt projectId={project.id} workspaceId={project.workspaceId} />
       ) : null}
 
-      {summary.parts.length ? (
-        <div className="text-xs text-muted-foreground bg-muted/40 border border-border rounded-lg px-3 py-2">
-          {summary.parts.join(" · ")}
-        </div>
-      ) : null}
+      {turns.map((turn, turnIndex) => {
+        const isLast = turnIndex === turns.length - 1;
+        const turnRunning = isLast && lastTurnLive;
+        const thinkingLive = isLast && showLiveThinking;
+        if (turn.user) blockIndex += 1;
+        const userCta = turn.user ? kanbanCtas.get(blockIndex) : undefined;
 
-      {blocks.map((block, index) => {
-        const kanban = kanbanCtas.get(index);
-        const cta = kanban ? (
-          <div className={cn("max-w-4xl", compact ? "pl-9" : "pl-11")}>
-            <ProjectKanbanCta
-              workspaceId={kanban.workspaceId}
-              projectId={kanban.projectId}
-              name={kanban.name}
-            />
-          </div>
-        ) : null;
-        if (block.kind === "user") {
-          return (
-            <div key={block.message.id} className="flex flex-col gap-3">
+        return (
+          <div key={turn.user?.id ?? `turn-${turnIndex}`} className="flex flex-col gap-3">
+            {turn.user ? (
               <UserBubble
-                message={block.message}
+                message={turn.user}
                 canEdit={!running && !awaiting && !sending}
                 onSendEdit={onSendEdit}
                 compact={compact}
               />
-              {cta}
-            </div>
-          );
-        }
-        if (block.kind === "assistant") {
-          return (
-            <div key={block.message.id} className="flex flex-col gap-3">
-              <AgentBubble
-                message={block.message}
-                workItems={workItems}
-                members={members}
-                workspaceId={run.workspaceId}
-                projectId={run.projectId}
-                choicesEnabled={!running && !awaiting && !awaitingPlugin && block.message.id === lastAssistantId}
-                onPickChoice={onPickChoice}
-                compact={compact}
+            ) : null}
+            {userCta ? (
+              <ProjectKanbanCta
+                workspaceId={userCta.workspaceId}
+                projectId={userCta.projectId}
+                name={userCta.name}
               />
-              {cta}
-            </div>
-          );
-        }
-        const isCurrentSteps = index === lastStepsBlockIndex;
-        return (
-          <div key={block.lead?.id ?? `steps-${index}`} className="flex flex-col gap-3">
-            <StepsCard
-              lead={block.lead}
-              steps={block.steps}
-              running={running && isCurrentSteps}
-              awaiting={awaiting && isCurrentSteps}
-              workItems={workItems}
-              members={members}
-              workspaceId={run.workspaceId}
-              projectId={run.projectId}
-              compact={compact}
-            />
-            {cta}
+            ) : null}
+
+            {turn.thoughts.length || thinkingLive ? (
+              <ThinkingBlock
+                thoughts={turn.thoughts}
+                startedAt={turn.startedAt}
+                endedAt={turn.endedAt}
+                live={Boolean(thinkingLive)}
+                keepOpen={isLast && failedOrStopped}
+              />
+            ) : null}
+
+            {turn.blocks.map((block) => {
+              blockIndex += 1;
+              const kanban = kanbanCtas.get(blockIndex);
+              const cta = kanban ? (
+                <ProjectKanbanCta
+                  workspaceId={kanban.workspaceId}
+                  projectId={kanban.projectId}
+                  name={kanban.name}
+                />
+              ) : null;
+              if (block.kind === "assistant") {
+                return (
+                  <div key={block.message.id} className="flex flex-col gap-3">
+                    <AgentBubble
+                      message={block.message}
+                      workItems={workItems}
+                      members={members}
+                      workspaceId={run.workspaceId}
+                      projectId={run.projectId}
+                      choicesEnabled={!running && !awaiting && !awaitingPlugin && block.message.id === lastAssistantMessageId}
+                      onPickChoice={onPickChoice}
+                    />
+                    {cta}
+                  </div>
+                );
+              }
+              const isCurrentSteps = isLast && block === turn.blocks.filter((item) => item.kind === "steps").at(-1);
+              return (
+                <div key={block.lead?.id ?? `steps-${turnIndex}-${blockIndex}`} className="flex flex-col gap-3">
+                  <StepsCard
+                    lead={block.lead}
+                    steps={block.steps}
+                    running={turnRunning && isCurrentSteps}
+                    awaiting={awaiting && isCurrentSteps}
+                    workItems={workItems}
+                    members={members}
+                    workspaceId={run.workspaceId}
+                    projectId={run.projectId}
+                  />
+                  {cta}
+                </div>
+              );
+            })}
+
+            <ActivityLines events={turn.activity} />
+
+            {isLast && turnRunning && currentAction && currentAction.type !== "thought" && currentAction.type !== "llm_usage" ? (
+              <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin text-primary" />
+                <span>{currentAction.title}</span>
+              </div>
+            ) : null}
+
+            {turn.usage.some((event) => event.type === "llm_usage" || event.type === "context_meter") ? (
+              <AgentTurnUsageCard events={turn.usage} live={Boolean(isLast && turnRunning)} />
+            ) : null}
           </div>
         );
       })}
-
-      {showThinking ? (
-        <div className="flex gap-3.5">
-          <AgentAvatar compact={compact} />
-          <div className="flex-1 min-w-0 flex items-center gap-2 text-sm text-muted-foreground pt-1.5">
-            <Loader2 className="size-4 animate-spin text-primary" />
-            <span>{thinkingLabel}</span>
-          </div>
-        </div>
-      ) : null}
 
       {awaitingPlugin && pendingPlugin ? (
         <PluginConnectCard pending={pendingPlugin} runId={run.id} />
@@ -1088,10 +1147,12 @@ export function AgentChatThread({
         />
       ) : null}
 
-      {run.error ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-xs text-destructive font-medium">
-          {run.error}
+      {run.error || (failedOrStopped && !run.error && lastTurn && !lastTurn.blocks.some((block) => block.kind === "assistant")) ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+          {run.error || (run.status === "stopped" ? "Stopped. Work done so far is kept above." : "This turn ended before a reply.")}
         </div>
+      ) : run.status === "stopped" ? (
+        <p className="text-[13px] text-muted-foreground">Stopped. Work done so far is kept above.</p>
       ) : null}
 
       <div aria-hidden className={cn("shrink-0", compact ? "h-2" : "h-56")} />

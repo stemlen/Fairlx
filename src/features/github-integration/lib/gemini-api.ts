@@ -55,6 +55,7 @@ export class GeminiAPI {
 
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
+    let totalCachedTokens = 0;
     let totalTokens = 0;
     let model = "";
 
@@ -65,6 +66,7 @@ export class GeminiAPI {
         faq[question] = response.text;
         totalPromptTokens += response.tokenUsage.promptTokens;
         totalCompletionTokens += response.tokenUsage.completionTokens;
+        totalCachedTokens += response.tokenUsage.cachedTokens;
         totalTokens += response.tokenUsage.totalTokens;
         if (!model) model = response.model;
         // small delay to avoid rate limiting
@@ -79,6 +81,7 @@ export class GeminiAPI {
       tokenUsage: {
         promptTokens: totalPromptTokens,
         completionTokens: totalCompletionTokens,
+        cachedTokens: totalCachedTokens,
         totalTokens,
       },
       model,
