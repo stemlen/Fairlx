@@ -91,7 +91,7 @@ async function jsonRpc(
 export type McpBridgeContext = {
   userId: string;
   mcp: McpConfig;
-  harness: AgentHarness;
+  harness?: AgentHarness;
   runs?: AgentRun[];
   databases?: Databases;
   auth?: AuthContext;
@@ -167,6 +167,9 @@ export async function callMcpServerTool(params: {
   if (!server || server.disabled) return { error: `MCP server "${serverName}" is not available.` };
 
   if (isPersonal(serverName, server)) {
+    if (!params.ctx.harness) {
+      return { error: `Personal harness is not available for MCP server "${serverName}".` };
+    }
     const kind = String(params.args?.kind || params.tool.replace(/^personal_/, "") || "harness");
     const known = PERSONAL_RESOURCE_KINDS.includes(kind as (typeof PERSONAL_RESOURCE_KINDS)[number])
       ? kind

@@ -9,7 +9,7 @@ export type UsersWithTargets = {
   createTarget: (
     userId: string,
     targetId: string,
-    providerType: string,
+    providerType: MessagingProviderType,
     identifier: string,
     providerId?: string,
     name?: string,

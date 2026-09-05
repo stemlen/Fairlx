@@ -255,7 +255,7 @@ function compactArrayItems(items: unknown[]): unknown[] {
     if (next.type === "llm_usage") {
       const compact = compactLlmUsagePayload(next.payload);
       if (compact) next.payload = compact;
-    } else if (next.type !== "confirmation" && next.payload !== undefined) {
+    } else if (next.type !== "confirmation" && next.type !== "context_meter" && next.payload !== undefined) {
       try {
         if (JSON.stringify(next.payload).length > EVENT_PAYLOAD_MAX) next.payload = undefined;
       } catch {
@@ -317,7 +317,7 @@ function isEventItem(item: unknown): boolean {
 
 function isPinnedEvent(item: unknown): boolean {
   if (!isRecord(item)) return false;
-  return item.type === "confirmation" || item.type === "confirmation_resolved" || item.type === "error";
+  return item.type === "confirmation" || item.type === "confirmation_resolved" || item.type === "error" || item.type === "context_meter" || item.type === "llm_usage";
 }
 
 /** Drop bulky payloads from the activity trail so thought titles survive the Appwrite cap. */
@@ -362,7 +362,8 @@ function dropDispensable(items: unknown[], max: number): unknown[] {
       typeof item.type === "string" &&
       item.role == null &&
       !isPinnedEvent(item) &&
-      item.type !== "thought",
+      item.type !== "thought" &&
+      item.type !== "context_meter",
     (item) => isRecord(item) && item.type === "thought",
   ];
   for (const pred of predicates) {

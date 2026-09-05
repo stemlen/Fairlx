@@ -27,6 +27,7 @@ import { AgentModeSelector } from "./agent-mode-selector";
 import { AgentPermissionPicker } from "./agent-permission-picker";
 import { ModelPicker } from "./model-picker";
 import { PersonalAgentSetup } from "./personal-agent-setup";
+import { AgentContextMeter } from "./agent-context-meter";
 
 function autosize(el: HTMLTextAreaElement, min = 56) {
   el.style.height = "auto";
@@ -122,6 +123,9 @@ export function AgentCommandInput({
     [context?.projects, activeWorkspaceId]
   );
   const hasProjects = context ? projectCount > 0 : true;
+  const activeProjectId = hasProjects
+    ? selectedProjectId || run?.projectId || projectId || harness?.settings.defaultProjectId
+    : undefined;
 
   const quickActions = useMemo(
     () => getQuickActions(hasProjects),
@@ -355,6 +359,13 @@ export function AgentCommandInput({
               </div>
 
               <div className="flex items-center gap-1.5">
+                <AgentContextMeter
+                  run={run}
+                  draftPrompt={prompt}
+                  chips={chips}
+                  workspaceId={activeWorkspaceId}
+                  projectId={activeProjectId}
+                />
                 <AgentPlusMenu
                   chips={chips}
                   onAdd={(chip) =>

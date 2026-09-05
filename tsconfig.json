@@ -30,6 +30,11 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "packages/fairlx-multi-agent/src/**/*.ts",
+    "packages/fairlx-mcp/src/tools/catalog.ts",
+    "packages/fairlx-mcp/src/auth/scopes.ts",
+    "packages/fairlx-mcp/src/auth/context.ts",
+    "packages/fairlx-mcp/src/protocol/types.ts",
+    "packages/fairlx-mcp/src/runtime/types.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": ["node_modules", "files", "backup"]

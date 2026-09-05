@@ -10,11 +10,13 @@ import type {
   AgentAiConfigStored,
   AgentCapability,
   AgentChatMessage,
+  AgentHarness,
   AgentPermissionType,
   AgentRun,
   AgentSpecialistId,
   AgentToolCall,
   AgentToolEvent,
+  McpConfig,
 } from "../types";
 import { buildAgentMcpAuth, mcpToolsForAuth } from "./agent-auth";
 import { loadAgentContext } from "./context";
@@ -48,7 +50,7 @@ import {
   unwrapListCall,
   toolsWhenContextIsTight,
 } from "./tool-loop";
-import { executeTool, openaiToolsForTurn, trainingSaveTool } from "./tools";
+import { executeTool, openaiToolsForTurn, trainingSaveTool, type OpenAiTool } from "./tools";
 import { compactJsonString } from "./truncate";
 import { getRun, listRuns, updateRun } from "./runs";
 import { getPersonalAgent } from "./personal-agent-store";
@@ -62,7 +64,12 @@ import { capSpecialistResult, CONTEXT_BUDGET_RATIO, estimatedFittedTokens, facts
 import { catalogForCapability, missingCapabilities } from "../plugins/catalog";
 import { claimQueuedJobs } from "./jobs";
 import { scheduleAgentJob } from "./schedule-job";
-import { activeSubagents } from "./context-meter";
+import {
+  activeSubagents,
+  buildContextMeterPayload,
+  latestContextMeter,
+  takeHigherChatPeak,
+} from "./context-meter";
 import { buildAgentLlmUsageEvent, recordAgentChatUsage } from "./ai-usage-billing";
 import {
   MAX_PARALLEL_SUBAGENTS,
@@ -96,6 +103,49 @@ function thoughtEvent(runId: string, title: string, detail?: string, payload?: u
     createdAt: new Date().toISOString(),
     runId,
   };
+}
+
+function withContextMeter(params: {
+  events: AgentToolEvent[];
+  runId: string;
+  system: string;
+  tools: OpenAiTool[];
+  messages: AgentChatMessage[];
+  harness: AgentHarness;
+  mcp: McpConfig;
+  maxInputTokens: number;
+  contextPeak?: AgentRun["contextPeak"];
+}): AgentToolEvent[] {
+  const payload = buildContextMeterPayload({
+    system: params.system,
+    tools: params.tools,
+    messages: params.messages,
+    harness: params.harness,
+    mcp: params.mcp,
+    maxInputTokens: params.maxInputTokens,
+    subagents: activeSubagents(params.events).length,
+  });
+  const previous = latestContextMeter(params.events);
+  const peak = takeHigherChatPeak(
+    takeHigherChatPeak(params.contextPeak, previous?.breakdown),
+    payload.breakdown,
+  );
+  if (peak.conversation + peak.summarized_conversation > payload.breakdown.conversation + payload.breakdown.summarized_conversation) {
+    payload.breakdown.conversation = peak.conversation;
+    payload.breakdown.summarized_conversation = peak.summarized_conversation;
+    payload.tokens = Object.values(payload.breakdown).reduce((sum, value) => sum + value, 0);
+  }
+  return [
+    ...params.events.filter((event) => event.type !== "context_meter"),
+    {
+      id: crypto.randomUUID(),
+      type: "context_meter",
+      title: "Context",
+      payload,
+      createdAt: new Date().toISOString(),
+      runId: params.runId,
+    },
+  ];
 }
 
 function chatHost(url: string) {
@@ -483,7 +533,22 @@ export async function runAgentTurn(params: {
         status: "stopped",
       });
     }
-    return updateRun(databases, run.id, patch);
+    const meter = latestContextMeter(patch.events ?? run.events);
+    const contextPeak = takeHigherChatPeak(
+      takeHigherChatPeak(run.contextPeak, latest?.contextPeak),
+      meter?.breakdown,
+    );
+    const extra = {
+      kind: run.kind ?? latest?.kind ?? "chat",
+      contextPeak,
+    };
+    const updated = await updateRun(databases, run.id, { ...patch, extra });
+    return {
+      ...updated,
+      messages: patch.messages ?? run.messages,
+      events: patch.events ?? updated.events,
+      contextPeak,
+    };
   };
 
   const persistMergedEvents = createMergedEventPersister({
@@ -1143,6 +1208,23 @@ export async function runAgentTurn(params: {
           : tools;
       const writeNow = !training && tight && researched;
 
+      if (iteration === 0) {
+        run = await persistUnlessStopped({
+          events: withContextMeter({
+            events: run.events,
+            runId: run.id,
+            system,
+            tools: iterationTools,
+            messages: run.messages,
+            harness,
+            mcp,
+            maxInputTokens: target.maxInputTokens ?? 0,
+            contextPeak: run.contextPeak,
+          }),
+        });
+        if (run.status === "stopped") return run;
+      }
+
       run = await persistUnlessStopped({
         events: appendEvents([...snapshotEvents], [
           thoughtEvent(
@@ -1266,21 +1348,17 @@ export async function runAgentTurn(params: {
             ...delegates,
           ];
         }
-        const nextEvents = [
-          ...run.events,
-          {
-            id: crypto.randomUUID(),
-            type: "context_meter" as const,
-            title: "Context",
-            payload: {
-              tokens: estimatedFittedTokens(system, run.messages, target.maxInputTokens),
-              maxInputTokens: target.maxInputTokens ?? 0,
-              subagents: activeSubagents(run.events).length + delegates.length,
-            },
-            createdAt: new Date().toISOString(),
-            runId: run.id,
-          },
-        ];
+        const nextEvents = withContextMeter({
+          events: run.events,
+          runId: run.id,
+          system,
+          tools: iterationTools,
+          messages: nextMessages,
+          harness,
+          mcp,
+          maxInputTokens: target.maxInputTokens ?? 0,
+          contextPeak: run.contextPeak,
+        });
         snapshotMessages = nextMessages;
         snapshotEvents = nextEvents;
         const { calls: restCalls, coalescedIds } = collapseWorkItemListFanOut(rest);

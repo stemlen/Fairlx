@@ -133,6 +133,163 @@ export async function ensureCollection(
 
 // ─── String Attribute ────────────────────────────────────────
 
+function isIndexConflict(err: unknown): boolean {
+    return /already an index with the same attributes/i.test(errorMessage(err));
+}
+
+type IndexSnapshot = {
+    key: string;
+    type: IndexType;
+    attributes: string[];
+    orders?: string[];
+};
+
+async function waitForIndexesGone(
+    databases: Databases,
+    databaseId: string,
+    collectionId: string,
+    keys: string[],
+    timeoutMs = 45_000,
+): Promise<void> {
+    if (!keys.length) return;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+        const remaining: string[] = [];
+        for (const key of keys) {
+            try {
+                await databases.getIndex(databaseId, collectionId, key);
+                remaining.push(key);
+            } catch (err) {
+                if (!isAppwriteError(err, 404)) remaining.push(key);
+            }
+        }
+        if (!remaining.length) return;
+        await sleep(1000);
+    }
+}
+
+async function snapshotAndDropIndexes(
+    databases: Databases,
+    databaseId: string,
+    collectionId: string,
+): Promise<IndexSnapshot[]> {
+    const listed = await databases.listIndexes(databaseId, collectionId);
+    const snapshot: IndexSnapshot[] = listed.indexes.map((index) => ({
+        key: index.key,
+        type: index.type as IndexType,
+        attributes: index.attributes,
+        orders: index.orders,
+    }));
+    for (const index of snapshot) {
+        try {
+            await databases.deleteIndex(databaseId, collectionId, index.key);
+        } catch (err) {
+            if (!isAppwriteError(err, 404)) throw err;
+        }
+    }
+    await waitForIndexesGone(
+        databases,
+        databaseId,
+        collectionId,
+        snapshot.map((index) => index.key),
+    );
+    return snapshot;
+}
+
+async function restoreIndexes(
+    databases: Databases,
+    databaseId: string,
+    collectionId: string,
+    snapshot: IndexSnapshot[],
+): Promise<void> {
+    for (const index of snapshot) {
+        await ensureIndex(
+            databases,
+            databaseId,
+            collectionId,
+            index.key,
+            index.type,
+            index.attributes,
+            index.orders,
+        );
+    }
+}
+
+async function patchStringAttributeSize(
+    databases: Databases,
+    databaseId: string,
+    collectionId: string,
+    key: string,
+    size: number,
+    required: boolean,
+    defaultValue?: string,
+): Promise<void> {
+    const uri = new URL(
+        `${databases.client.config.endpoint}/databases/${databaseId}/collections/${collectionId}/attributes/string/${key}`,
+    );
+    await databases.client.call(
+        "patch",
+        uri,
+        { "content-type": "application/json" },
+        {
+            required,
+            default: required ? null : (defaultValue ?? null),
+            size,
+        },
+    );
+}
+
+async function bumpStringAttributeSize(
+    databases: Databases,
+    databaseId: string,
+    collectionId: string,
+    key: string,
+    size: number,
+    required: boolean,
+    defaultValue?: string,
+): Promise<boolean> {
+    const apply = async () => {
+        await patchStringAttributeSize(
+            databases,
+            databaseId,
+            collectionId,
+            key,
+            size,
+            required,
+            defaultValue,
+        );
+        logger.updated("attribute size", `${key} → ${size}`);
+        await waitForAttributesAvailable(databases, databaseId, collectionId, [key]);
+    };
+
+    try {
+        await apply();
+        return true;
+    } catch (err) {
+        if (!isIndexConflict(err)) {
+            logger.error("attribute", key, err);
+            logger.info(
+                `Increase ${collectionId}.${key} to size ${size} in the Appwrite Console. Do not delete the attribute unless you accept losing that field's data.`,
+            );
+            return false;
+        }
+        logger.info(`Retrying ${key} size bump after temporarily removing indexes...`);
+        const snapshot = await snapshotAndDropIndexes(databases, databaseId, collectionId);
+        try {
+            await apply();
+            return true;
+        } catch (retryErr) {
+            logger.error("attribute", key, retryErr);
+            logger.info(
+                `Increase ${collectionId}.${key} to size ${size} in the Appwrite Console. Do not delete the attribute unless you accept losing that field's data.`,
+            );
+            return false;
+        } finally {
+            await restoreIndexes(databases, databaseId, collectionId, snapshot);
+        }
+    }
+}
+
 export async function ensureStringAttribute(
     databases: Databases,
     databaseId: string,
@@ -144,7 +301,21 @@ export async function ensureStringAttribute(
     array: boolean = false
 ): Promise<void> {
     try {
-        await databases.getAttribute(databaseId, collectionId, key);
+        const existing = await databases.getAttribute(databaseId, collectionId, key) as {
+            size?: number;
+        };
+        if (typeof existing.size === "number" && existing.size < size) {
+            await bumpStringAttributeSize(
+                databases,
+                databaseId,
+                collectionId,
+                key,
+                size,
+                required,
+                defaultValue,
+            );
+            return;
+        }
         logger.skipped('attribute', key);
     } catch (err) {
         if (isAppwriteError(err, 404)) {

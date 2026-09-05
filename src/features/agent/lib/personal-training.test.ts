@@ -17,6 +17,7 @@ import {
   inferAnswersFromSnapshot,
 } from "./personal-training";
 import { profileIsTrained } from "./personal-agent-status";
+import type { AgentContext, PersonalTrainingAnswer } from "../types";
 
 function context(): AgentContext {
   return {

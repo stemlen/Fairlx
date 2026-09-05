@@ -52,7 +52,6 @@ import { extractBoardProject, withWorkspaceFallback } from "../lib/project-launc
 import { aggregateLlmUsage, formatCompactUsageLine, looksLikeLlmUsageEvent } from "../lib/run-usage";
 import type { AgentRun, AgentToolEvent } from "../types";
 import { AgentChatThread } from "./agent-chat-thread";
-import { AgentRunHud } from "./agent-run-hud";
 import { AgentCommandInput } from "./agent-command-input";
 import { useAgentUi } from "./agent-ui-context";
 import { ModelPicker } from "./model-picker";
@@ -796,7 +795,6 @@ function WorkflowViewInner() {
           </div>
 
           <FloatingComposer>
-            <AgentRunHud run={run} />
             <AgentCommandInput
               run={run}
               variant="followup"

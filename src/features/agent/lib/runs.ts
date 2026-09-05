@@ -3,7 +3,7 @@ import { Databases, ID, Query } from "node-appwrite";
 import { AGENT_RUNS_ID, DATABASE_ID } from "@/config";
 import type { AgentChatMessage, AgentRun, AgentRunMode, AgentRunStatus, AgentToolEvent } from "../types";
 import { extractAttachedFiles, serializeAttachments, withAttachedFiles } from "./attachments";
-import { AGENT_MESSAGES_JSON_MAX, AGENT_PROMPT_ATTR_MAX } from "./limits";
+import { AGENT_EVENTS_JSON_MAX, AGENT_MESSAGES_JSON_MAX, AGENT_PROMPT_ATTR_MAX } from "./limits";
 import { isTrainingRun } from "./personal-training";
 import { displayUserContent } from "./session-context";
 import { parseJson, stringifyBounded, truncateString } from "./truncate";
@@ -27,8 +27,16 @@ type RunDocument = {
   attachmentsJson?: string;
 };
 
+type RunExtra = {
+  kind?: string;
+  contextPeak?: {
+    conversation: number;
+    summarized_conversation: number;
+  };
+};
+
 export function parseRun(doc: RunDocument): AgentRun {
-  const extra = parseJson<{ kind?: string }>(doc.extraJson, {});
+  const extra = parseJson<RunExtra>(doc.extraJson, {});
   const prompt = doc.prompt;
   const kind = isTrainingRun({ kind: extra.kind, prompt }) ? "training" : "chat";
   const attachments = parseJson<Array<{ name: string; body: string }>>(doc.attachmentsJson, []);
@@ -36,6 +44,7 @@ export function parseRun(doc: RunDocument): AgentRun {
     if (index !== 0 || message.role !== "user" || !attachments.length) return message;
     return { ...message, content: withAttachedFiles(message.content, attachments) };
   });
+  const contextPeak = extra.contextPeak;
   return {
     id: doc.$id,
     userId: doc.userId,
@@ -50,6 +59,13 @@ export function parseRun(doc: RunDocument): AgentRun {
     events: parseJson<AgentToolEvent[]>(doc.eventsJson, []),
     error: doc.error || undefined,
     kind,
+    contextPeak:
+      contextPeak && typeof contextPeak.conversation === "number"
+        ? {
+            conversation: Math.max(0, contextPeak.conversation),
+            summarized_conversation: Math.max(0, contextPeak.summarized_conversation ?? 0),
+          }
+        : undefined,
     createdAt: doc.$createdAt,
     updatedAt: doc.$updatedAt || doc.$createdAt,
   };
@@ -118,7 +134,7 @@ export async function createRun(
     projectId: input.projectId || "",
     modelId: input.modelId || "",
     messagesJson: stringifyBounded(messages, AGENT_MESSAGES_JSON_MAX),
-    eventsJson: stringifyBounded([]),
+    eventsJson: stringifyBounded([], AGENT_EVENTS_JSON_MAX),
     extraJson: stringifyBounded({ kind }, 4096),
     attachmentsJson: serializeAttachments(attachments),
     error: "",
@@ -167,6 +183,13 @@ export async function updateRun(
     messages: AgentChatMessage[];
     events: AgentToolEvent[];
     error: string;
+    extra: {
+      kind?: string;
+      contextPeak?: {
+        conversation: number;
+        summarized_conversation: number;
+      };
+    };
   }>,
 ): Promise<AgentRun> {
   const payload: Record<string, string> = {};
@@ -182,8 +205,9 @@ export async function updateRun(
     );
     if (files.length) payload.attachmentsJson = serializeAttachments(files);
   }
-  if (patch.events !== undefined) payload.eventsJson = stringifyBounded(patch.events);
+  if (patch.events !== undefined) payload.eventsJson = stringifyBounded(patch.events, AGENT_EVENTS_JSON_MAX);
   if (patch.error !== undefined) payload.error = truncateString(patch.error, 2048);
+  if (patch.extra !== undefined) payload.extraJson = stringifyBounded(patch.extra, 4096);
 
   let doc;
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -207,10 +231,22 @@ export async function updateRun(
 
   const parsed = parseRun(doc as unknown as RunDocument);
   if (patch.messages) {
-    return { ...parsed, messages: patch.messages, events: patch.events ?? parsed.events };
+    return {
+      ...parsed,
+      messages: patch.messages,
+      events: patch.events ?? parsed.events,
+      contextPeak: patch.extra?.contextPeak ?? parsed.contextPeak,
+    };
   }
   if (patch.events) {
-    return { ...parsed, events: patch.events };
+    return {
+      ...parsed,
+      events: patch.events,
+      contextPeak: patch.extra?.contextPeak ?? parsed.contextPeak,
+    };
+  }
+  if (patch.extra?.contextPeak) {
+    return { ...parsed, contextPeak: patch.extra.contextPeak };
   }
   return parsed;
 }

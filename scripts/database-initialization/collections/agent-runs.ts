@@ -25,8 +25,9 @@ export async function setupAgentRuns(databases: Databases, databaseId: string): 
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'workspaceId', 256, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'projectId', 256, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'modelId', 256, false);
-    await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'messagesJson', 16384, true);
-    await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'eventsJson', 16384, true);
+    // Must match AGENT_MESSAGES_JSON_MAX / AGENT_EVENTS_JSON_MAX in src/features/agent/lib/limits.ts.
+    await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'messagesJson', 1_048_576, true);
+    await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'eventsJson', 1_048_576, true);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'error', 2048, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'parentRunId', 256, false);
     await ensureStringAttribute(databases, databaseId, COLLECTION_ID, 'subAgentType', 32, false);

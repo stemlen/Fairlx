@@ -13,8 +13,11 @@ export const AGENT_PROMPT_HTTP_MAX = 2_000_000;
 /** New optional `attachmentsJson` attribute (created at this size). */
 export const AGENT_ATTACHMENTS_JSON_MAX = 2_000_000;
 
-/** Existing `messagesJson` attribute. Keep unless the collection is migrated. */
-export const AGENT_MESSAGES_JSON_MAX = 16384;
+/** Appwrite `agent_runs.messagesJson` size. Must match the collection attribute. */
+export const AGENT_MESSAGES_JSON_MAX = 1_048_576;
+
+/** Appwrite `agent_runs.eventsJson` size. Must match the collection attribute. */
+export const AGENT_EVENTS_JSON_MAX = 1_048_576;
 
 export const MAX_ATTACHED_FILE_CHARS = 2_000_000;
 

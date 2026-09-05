@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { compactJsonString, parseJson, stringifyBounded, unwrapMcpToolContent } from "./truncate";
+import { AGENT_MESSAGES_JSON_MAX } from "./limits";
 
 describe("stringifyBounded", () => {
   it("keeps valid JSON under the Appwrite string cap", () => {
@@ -224,6 +225,57 @@ describe("stringifyBounded", () => {
     const usage = parsed.find((event) => event.type === "llm_usage");
     expect(usage?.payload?.displayName).toBe("Grok 4.6");
     expect(usage?.payload?.totalTokens).toBe(8388);
+  });
+
+  it("keeps the context_meter payload when events exceed the cap", () => {
+    const events = [
+      ...Array.from({ length: 30 }, (_, index) => ({
+        id: `thought-${index}`,
+        type: "thought",
+        title: "Working",
+        detail: "z".repeat(400),
+        createdAt: new Date().toISOString(),
+      })),
+      {
+        id: "meter",
+        type: "context_meter",
+        title: "Context",
+        payload: {
+          tokens: 6527,
+          maxInputTokens: 64000,
+          subagents: 0,
+          breakdown: {
+            system_prompt: 114,
+            tool_definitions: 546,
+            rules: 2185,
+            skills: 0,
+            mcp_dynamic_tools: 615,
+            subagent_definitions: 0,
+            summarized_conversation: 1119,
+            conversation: 1948,
+          },
+        },
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const json = stringifyBounded(events, 4096);
+    expect(json.length).toBeLessThanOrEqual(4096);
+    const parsed = JSON.parse(json) as Array<{ type?: string; payload?: { breakdown?: { conversation?: number } } }>;
+    const meter = parsed.find((event) => event.type === "context_meter");
+    expect(meter?.payload?.breakdown?.conversation).toBe(1948);
+  });
+
+  it("keeps a chat that exceeds the old 16KB Appwrite cap under the 1MB messages cap", () => {
+    const messages = Array.from({ length: 40 }, (_, index) => ({
+      id: `m${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: "x".repeat(800),
+      createdAt: new Date().toISOString(),
+    }));
+    const json = stringifyBounded(messages, AGENT_MESSAGES_JSON_MAX);
+    expect(json.length).toBeGreaterThan(16384);
+    expect(json.length).toBeLessThanOrEqual(AGENT_MESSAGES_JSON_MAX);
+    expect(parseJson<unknown[]>(json, [])).toHaveLength(40);
   });
 });
 
