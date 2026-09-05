@@ -18,42 +18,20 @@
 </div>
 
 <!-- docs:latest:start -->
-**Last updated:** 2026-09-05T18:48:43.679Z
+**Last updated:** 2026-09-05T18:55:34.441Z
 
 This block and [changelog.md](changelog.md) refresh on every `git commit` and `git push`.
 
-**This commit**
-
-- `.env.example`
-- `next.config.mjs`
-- `packages/fairlx-mcp/package.json`
-- `packages/fairlx-mcp/src/auth/scopes.ts`
-- `packages/fairlx-mcp/src/catalog.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-markdown.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-markdown.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-pack.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-pack.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-quality.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-quality.ts`
-- `packages/fairlx-mcp/src/runtime/types.ts`
-- `packages/fairlx-mcp/src/skills/generate-prd/SKILL.md`
-- `packages/fairlx-mcp/src/skills/registry.ts`
-- `packages/fairlx-mcp/src/tools/billing.test.ts`
-- `packages/fairlx-mcp/src/tools/billing.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/index.ts`
-- `packages/fairlx-mcp/src/tools/organization.test.ts`
-- `packages/fairlx-mcp/src/tools/organization.ts`
-- …and 115 more files
-
 **Latest commits**
 
-- `2108acc` chore: bump version to 0.2.100 [skip ci] (2026-09-05)
-- `6259f4f` Merge pull request #303 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync (2026-09-05)
-- `76b6b22` checkpoint before checking out main (2026-09-05)
-- `6f733c8` chore: bump version to 0.2.99 [skip ci] (2026-09-05)
-- `77834c5` Merge pull request #302 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync (2026-09-05)
-- `4d69739` Merge stemlen/main into contrib branch for cross-repo contribution (2026-09-05)
+- `8c49ee0` Merge stemlen/main into fork main to sync upstream before contribution. (2026-09-06)
+- `c719487` feat: researched project docs, agent context fitting, and usage billing (2026-09-06)
+- `8b787ea` chore: bump version to 0.2.102 [skip ci] (2026-09-05)
+- `66e7390` Merge pull request #305 from Happyesss/main (2026-09-05)
+- `f06ca01` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
+- `c81e03c` Merge pull request #304 from Happyesss/contrib/context-meter (2026-09-05)
+- `3de0bd4` chore: bump version to 0.2.101 [skip ci] (2026-09-05)
+- `7bc902a` Merge stemlen/main into fork and resolve prompt rule conflict. (2026-09-05)
 <!-- docs:latest:end -->
 
 ---

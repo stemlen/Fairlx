@@ -4,150 +4,20 @@ This file is generated on every `git commit` and `git push`. Do not edit it by h
 
 Older session notes live in [docs/changelog-history.md](docs/changelog-history.md).
 
-## Unreleased
-
-Files in this commit:
-
-- `.env.example`
-- `next.config.mjs`
-- `packages/fairlx-mcp/package.json`
-- `packages/fairlx-mcp/src/auth/scopes.ts`
-- `packages/fairlx-mcp/src/catalog.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-markdown.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-markdown.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-pack.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-pack.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-quality.test.ts`
-- `packages/fairlx-mcp/src/lib/project-doc-quality.ts`
-- `packages/fairlx-mcp/src/runtime/types.ts`
-- `packages/fairlx-mcp/src/skills/generate-prd/SKILL.md`
-- `packages/fairlx-mcp/src/skills/registry.ts`
-- `packages/fairlx-mcp/src/tools/billing.test.ts`
-- `packages/fairlx-mcp/src/tools/billing.ts`
-- `packages/fairlx-mcp/src/tools/catalog.ts`
-- `packages/fairlx-mcp/src/tools/index.ts`
-- `packages/fairlx-mcp/src/tools/organization.test.ts`
-- `packages/fairlx-mcp/src/tools/organization.ts`
-- `packages/fairlx-mcp/src/tools/read.ts`
-- `packages/fairlx-mcp/src/tools/write-docs.test.ts`
-- `packages/fairlx-mcp/src/tools/write-work-item.test.ts`
-- `packages/fairlx-mcp/src/tools/write.ts`
-- `scripts/database-initialization/collections/ai-model-pricing.ts`
-- `src/app/(dashboard)/layout.tsx`
-- `src/app/(dashboard)/workspaces/[workspaceId]/projects/[projectId]/docs/client.tsx`
-- `src/app/error.tsx`
-- `src/app/layout.tsx`
-- `src/components/account-lifecycle-provider.tsx`
-- `src/components/chunk-load-recovery.tsx`
-- `src/components/navbar.tsx`
-- `src/features/agent/api/use-agent-runs.poll.test.ts`
-- `src/features/agent/api/use-agent-runs.ts`
-- `src/features/agent/components/agent-app-shell.tsx`
-- `src/features/agent/components/agent-chat-thread.tsx`
-- `src/features/agent/components/agent-run-hud.tsx`
-- `src/features/agent/components/agent-scope-bar.tsx`
-- `src/features/agent/components/manage-models-dialog.tsx`
-- `src/features/agent/components/workflow-view.tsx`
-- `src/features/agent/constants.ts`
-- `src/features/agent/lib/agent-core.test.ts`
-- `src/features/agent/lib/ai-usage-billing.ts`
-- `src/features/agent/lib/brain/brain.test.ts`
-- `src/features/agent/lib/brain/compress.ts`
-- `src/features/agent/lib/brain/definitions.ts`
-- `src/features/agent/lib/brain/index.ts`
-- `src/features/agent/lib/brain/isolate.ts`
-- `src/features/agent/lib/brain/select.ts`
-- `src/features/agent/lib/complete-text.ts`
-- `src/features/agent/lib/defaults.ts`
-- `src/features/agent/lib/doc-turn-limits.test.ts`
-- `src/features/agent/lib/doc-turn-limits.ts`
-- `src/features/agent/lib/github-scope.test.ts`
-- `src/features/agent/lib/github-scope.ts`
-- `src/features/agent/lib/harness.ts`
-- `src/features/agent/lib/intent-compiler.test.ts`
-- `src/features/agent/lib/intent-compiler.ts`
-- `src/features/agent/lib/openai-responses.test.ts`
-- `src/features/agent/lib/openai-responses.ts`
-- `src/features/agent/lib/parallel-work.test.ts`
-- `src/features/agent/lib/parallel-work.ts`
-- `src/features/agent/lib/parse-tool-calls.test.ts`
-- `src/features/agent/lib/parse-tool-calls.ts`
-- `src/features/agent/lib/platform-credentials.test.ts`
-- `src/features/agent/lib/platform-credentials.ts`
-- `src/features/agent/lib/prompt.ts`
-- `src/features/agent/lib/run-usage.test.ts`
-- `src/features/agent/lib/run-usage.ts`
-- `src/features/agent/lib/runtime.ts`
-- `src/features/agent/lib/tool-loop.test.ts`
-- `src/features/agent/lib/tool-loop.ts`
-- `src/features/agent/lib/tools-scope.test.ts`
-- `src/features/agent/lib/tools.ts`
-- `src/features/agent/lib/transcript.ts`
-- `src/features/agent/lib/truncate.test.ts`
-- `src/features/agent/lib/truncate.ts`
-- `src/features/agent/lib/turn-errors.test.ts`
-- `src/features/agent/lib/turn-errors.ts`
-- `src/features/agent/lib/web-research.test.ts`
-- `src/features/agent/lib/web-research.ts`
-- `src/features/agent/lib/write-guard.test.ts`
-- `src/features/agent/lib/write-guard.ts`
-- `src/features/agent/plugins/catalog.test.ts`
-- `src/features/agent/plugins/github-helpers.ts`
-- `src/features/agent/plugins/github.ts`
-- `src/features/agent/types.ts`
-- `src/features/billing/api/use-get-billing-account.ts`
-- `src/features/billing/components/index.ts`
-- `src/features/billing/components/wallet-billing-alerts.tsx`
-- `src/features/billing/server/cron.ts`
-- `src/features/billing/types.ts`
-- `src/features/github-integration/api/use-github.ts`
-- `src/features/github-integration/components/connect-repository.tsx`
-- `src/features/github-integration/components/documentation-view.tsx`
-- `src/features/github-integration/components/github-optional-prompt.tsx`
-- `src/features/github-integration/components/index.ts`
-- `src/features/github-integration/lib/gemini-api.ts`
-- `src/features/github-integration/server/documentation-route.ts`
-- `src/features/mcp/appwrite-store.ts`
-- `src/features/mcp/bind-runtime.ts`
-- `src/features/organizations/audit.ts`
-- `src/features/organizations/components/organization-audit-logs.tsx`
-- `src/features/project-docs/api/use-project-docs.ts`
-- `src/features/project-docs/components/document-card.tsx`
-- `src/features/project-docs/components/document-download-menu.tsx`
-- `src/features/project-docs/components/document-list.tsx`
-- `src/features/project-docs/components/document-markdown.tsx`
-- `src/features/project-docs/components/document-preview-modal.tsx`
-- `src/features/project-docs/lib/document-export.ts`
-- `src/features/project-docs/lib/document-file.test.ts`
-- `src/features/project-docs/lib/document-file.ts`
-- `src/features/project-docs/lib/format-markdown.test.ts`
-- `src/features/project-docs/lib/format-markdown.ts`
-- `src/features/project-docs/schemas.ts`
-- `src/features/project-docs/server/ai-route.ts`
-- `src/features/project-docs/server/route.ts`
-- `src/features/project-docs/types.ts`
-- `src/features/usage/components/usage-charts.tsx`
-- `src/features/usage/components/usage-events-table.tsx`
-- `src/features/usage/components/usage-kpi-cards.tsx`
-- `src/features/usage/types.ts`
-- `src/features/wallet/api/use-wallet-billing-alert.ts`
-- `src/features/wallet/services/__tests__/wallet-service.test.ts`
-- `src/features/wallet/services/wallet-service.ts`
-- `src/features/wallet/types.ts`
-- `src/lib/ai-billing.test.ts`
-- `src/lib/ai-billing.ts`
-- `src/lib/ai-model-pricing.ts`
-- `src/lib/ai-pricing-sync-job.ts`
-- `src/lib/ai-service.ts`
-- `src/lib/usage-ledger.ts`
-- `src/lib/usage-metering.ts`
-- `tsconfig.json`
-- `vitest.config.ts`
-
 ## Recent commits
 
 | Date | Commit | Message | Author |
 |------|--------|---------|--------|
+| 2026-09-06 | `8c49ee0` | Merge stemlen/main into fork main to sync upstream before contribution. | ANCIENTINSANE |
+| 2026-09-06 | `c719487` | feat: researched project docs, agent context fitting, and usage billing | ANCIENTINSANE |
+| 2026-09-05 | `8b787ea` | chore: bump version to 0.2.102 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `66e7390` | Merge pull request #305 from Happyesss/main | Shashank Kumar Rathour |
+| 2026-09-05 | `f06ca01` | chore: bump version to 0.2.101 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `c81e03c` | Merge pull request #304 from Happyesss/contrib/context-meter | Shashank Kumar Rathour |
+| 2026-09-05 | `3de0bd4` | chore: bump version to 0.2.101 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `7bc902a` | Merge stemlen/main into fork and resolve prompt rule conflict. | Happyesss |
+| 2026-09-05 | `d09e948` | chore: bump version to 0.2.100 [skip ci] | github-actions[bot] |
+| 2026-09-05 | `3485018` | feat: introduce context meter to track and display agent token usage and budgeting | Happyesss |
 | 2026-09-05 | `2108acc` | chore: bump version to 0.2.100 [skip ci] | github-actions[bot] |
 | 2026-09-05 | `6259f4f` | Merge pull request #303 from ANCIENTINSANE/contrib/ancientinsane-agent-org-sync | Surendra Codes |
 | 2026-09-05 | `76b6b22` | checkpoint before checking out main | ANCIENTINSANE |
@@ -233,15 +103,5 @@ Files in this commit:
 | 2026-08-28 | `16d13e5` | Merge pull request #287 from ANCIENTINSANE/main | Shashank Kumar Rathour |
 | 2026-08-28 | `3a527cd` | Merge branch 'stemlen:main' into main | Surendra Codes |
 | 2026-08-28 | `34fb666` | fix: load organization audit logs on /organization | ANCIENTINSANE |
-| 2026-08-28 | `7ca56a1` | chore: bump version to 0.2.68 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `7881912` | Merge pull request #286 from Happyesss/main | Shashank Kumar Rathour |
-| 2026-08-28 | `cf0bec8` | chore: bump version to 0.2.67 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `e535814` | refactor: remove codebase QA feature and associated GitHub integration modules | Happyesss |
-| 2026-08-28 | `28a345f` | fix: resolve Invoices View All 404 for organization billing | ANCIENTINSANE |
-| 2026-08-28 | `cded1dd` | chore: bump version to 0.2.66 [skip ci] | github-actions[bot] |
-| 2026-08-28 | `47f5602` | Merge pull request #285 from ANCIENTINSANE/main | Shashank Kumar Rathour |
-| 2026-08-28 | `975cf12` | fix: implement Timeline PNG and PDF export via canvas Gantt renderer | ANCIENTINSANE |
-| 2026-08-28 | `942694e` | fix: accept Appwrite Document in department permission parser | ANCIENTINSANE |
-| 2026-08-28 | `64d9c95` | fix: align department member/permission writes with live Appwrite schema | ANCIENTINSANE |
 
-Last generated: 2026-09-05T18:48:43.625Z
+Last generated: 2026-09-05T18:55:34.414Z
